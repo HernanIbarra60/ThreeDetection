@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ThreeDetection · Segmentación de árboles con IA</title>
+  <meta name="description" content="ThreeDetection: demo de un modelo de segmentación de árboles. Proyecto de la cátedra de Inteligencia Artificial.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- 1. Bosque 3D -->
+  <header id="hero" class="hero">
+    <canvas id="forest-canvas" class="hero__canvas" aria-hidden="true"></canvas>
+    <div class="hero__fade" aria-hidden="true"></div>
+
+    <div class="hero__content">
+      <p class="hero__eyebrow">Inteligencia Artificial · Visión por computadora</p>
+      <h1 class="hero__title">ThreeDetection</h1>
+      <p class="hero__subtitle">
+        Un modelo que aprende a reconocer árboles, píxel por píxel.
+      </p>
+      <a href="#demo" class="btn btn--primary">Probar la demo</a>
+    </div>
+
+    <a href="#demo" class="hero__scroll" aria-label="Bajar a la demo">
+      <span></span>
+    </a>
+  </header>
+
+  <main>
+    <!-- 2. Descripción + demo -->
+    <section id="demo" class="section">
+      <div class="container">
+        <div class="intro">
+          <h2 class="section__title">¿Qué es la segmentación de árboles?</h2>
+          <p class="section__lead">
+            Es una tarea de visión por computadora en la que un modelo de
+            Inteligencia Artificial analiza una imagen y clasifica
+            <strong>cada píxel</strong> como <em>árbol</em> o <em>no árbol</em>.
+            El resultado es una máscara que marca exactamente dónde está la
+            vegetación arbórea en la escena.
+          </p>
+        </div>
+
+        <ul class="cards">
+          <li class="card">
+            <h3 class="card__title">Inventario forestal</h3>
+            <p>Estimar la cobertura arbórea de un área sin recorrerla árbol por árbol.</p>
+          </li>
+          <li class="card">
+            <h3 class="card__title">Monitoreo ambiental</h3>
+            <p>Detectar cambios en la vegetación a lo largo del tiempo, como talas o incendios.</p>
+          </li>
+          <li class="card">
+            <h3 class="card__title">Arbolado urbano</h3>
+            <p>Relevar los árboles de una ciudad para planificar espacios verdes.</p>
+          </li>
+        </ul>
+
+        <div class="demo">
+          <div class="demo__header">
+            <h2 class="section__title section__title--small">Probalo vos</h2>
+            <p class="demo__notice" role="note">
+              <strong>Máscara simulada:</strong> por ahora la segmentación se
+              aproxima detectando los colores verdes de la imagen. Cuando el
+              modelo esté entrenado, se va a reemplazar por sus predicciones.
+            </p>
+          </div>
+
+          <div class="demo__controls">
+            <button id="camera-toggle" class="btn btn--primary" type="button" aria-pressed="false">
+              Activar cámara
+            </button>
+
+            <label class="btn btn--secondary" for="image-input">
+              Subir imagen
+              <input id="image-input" class="visually-hidden" type="file" accept="image/*">
+            </label>
+
+            <label class="toggle">
+              <input id="mask-toggle" type="checkbox" checked>
+              <span>Mostrar máscara</span>
+            </label>
+          </div>
+
+          <div class="demo__stage">
+            <canvas id="stage-canvas" class="demo__canvas" hidden></canvas>
+            <video id="camera-video" class="visually-hidden" playsinline muted></video>
+            <div id="stage-placeholder" class="demo__placeholder">
+              <p>Activá la cámara o subí una imagen con árboles para ver la segmentación.</p>
+            </div>
+          </div>
+
+          <div class="demo__footer">
+            <p id="demo-status" class="demo__status" role="status" aria-live="polite"></p>
+            <p class="demo__coverage">
+              Cobertura arbórea estimada: <strong id="coverage-value">—</strong>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 3. Cátedra -->
+  <footer id="footer" class="footer">
+    <div class="container footer__inner">
+      <svg class="footer__icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2c-3.5 3-6 6.5-6 10a6 6 0 0 0 5 5.9V22h2v-4.1A6 6 0 0 0 18 12c0-3.5-2.5-7-6-10Z"/>
+      </svg>
+      <p class="footer__title">Proyecto de la cátedra de Inteligencia Artificial</p>
+      <p class="footer__meta">[Universidad / Facultad] · 2026</p>
+    </div>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
