@@ -78,6 +78,33 @@ export const PRESETS = {
     leafTexture: 'needles',
     barkColor: 0xb39a86,
   },
+  // Naranjo: tronco corto, copa redonda y densa, hojas oscuras y frutas.
+  orange: {
+    height: 4.6,
+    trunkLength: 0.36,
+    trunkRadius: 0.17,
+    levels: 3,
+    segments: [8, 7, 5, 3],
+    radial: [12, 8, 5, 4],
+    children: [6, 5, 3],
+    childStart: [0.6, 0.2, 0.25],
+    angle: [58, 46, 42],
+    lengthRatio: [1.55, 0.6, 0.5],
+    radiusRatio: [0.7, 0.6, 0.6],
+    taper: [0.6, 0.3, 0.25, 0.2],
+    gnarl: [0.06, 0.2, 0.25, 0.3],
+    upForce: [0, 0.03, 0.01, -0.01],
+    profile: (level, t) => (level === 0 ? 1 - 0.3 * t : 1 - 0.3 * t),
+    leafLevels: [2, 3],
+    leavesPerBranch: 13,
+    leafStart: 0.15,
+    leafSize: 0.58,
+    leafUp: 0.1,
+    leafTint: 0xb5cba0,
+    leafTexture: 'broadleaf',
+    barkColor: 0xa89480,
+    fruits: { chance: 0.07, radius: 0.12, color: 0xf08a1c },
+  },
 };
 
 /* ---------- Texturas generadas en canvas ---------- */
@@ -594,10 +621,56 @@ function leafColors(leaves, tint, rng) {
   });
 }
 
+let fruitGeometry = null;
+
+/* Frutas en un subconjunto de las posiciones de hojas, corridas hacia afuera para que asomen. */
+function createFruits(leafMatrices, crownCenter, { chance, radius, color }, rng, detail, uniforms) {
+  const matrices = [];
+  const position = new THREE.Vector3();
+  const outward = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  const matrix = new THREE.Matrix4();
+  for (const m of leafMatrices) {
+    // Los árboles lejanos llevan menos frutas: casi no se distinguen y suman triángulos.
+    if (rng() > chance * detail) continue;
+    position.setFromMatrixPosition(m);
+    outward.subVectors(position, crownCenter).setY(0).normalize();
+    position.addScaledVector(outward, radius * 1.2);
+    position.y -= radius;
+    const s = radius * (0.85 + rng() * 0.3);
+    scale.set(s, s * 0.95, s);
+    matrices.push(matrix.compose(position, rotation, scale).clone());
+  }
+
+  fruitGeometry ??= new THREE.SphereGeometry(1, 9, 6);
+  const material = applyWind(new THREE.MeshStandardMaterial({ roughness: 0.5 }), uniforms);
+  const fruits = new THREE.InstancedMesh(fruitGeometry, material, matrices.length);
+  const hsl = {};
+  new THREE.Color(color).getHSL(hsl);
+  const tint = new THREE.Color();
+  matrices.forEach((m, i) => {
+    fruits.setMatrixAt(i, m);
+    // Algunas todavía verdosas.
+    const hue = rng() < 0.08 ? 0.16 : hsl.h + (rng() - 0.5) * 0.025;
+    tint.setHSL(hue, hsl.s, hsl.l * (0.9 + rng() * 0.2));
+    fruits.setColorAt(i, tint);
+  });
+  fruits.instanceMatrix.needsUpdate = true;
+  fruits.computeBoundingSphere();
+  fruits.castShadow = true;
+  fruits.receiveShadow = true;
+  fruits.customDepthMaterial = applyWind(
+    new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }),
+    uniforms,
+  );
+  return fruits;
+}
+
 /**
  * Crea un árbol procedural.
  * @param {object} options
- * @param {'broadleaf'|'conifer'} options.type Especie.
+ * @param {'broadleaf'|'conifer'|'orange'} options.type Especie.
  * @param {number} options.seed Semilla: cada valor genera un árbol distinto.
  * @param {number} [options.detail=1] Entre 0 y 1; menos detalle para árboles lejanos.
  * @param {{uTime: {value:number}, uWind: {value:number}}} options.wind Uniforms compartidos de viento.
@@ -686,6 +759,7 @@ export function createTree({ type = 'broadleaf', seed = 1, detail = 1, wind }) {
 
   const group = new THREE.Group();
   group.add(branches, leaves);
+  if (preset.fruits) group.add(createFruits(ctx.leaves, crownCenter, preset.fruits, rng, detail, branchUniforms));
   group.userData.height = height;
   return group;
 }

@@ -5,23 +5,41 @@ const SKY_TOP = new THREE.Color(0x86b9de);
 const HORIZON = new THREE.Color(0xe6ecdc);
 const SUN_DIRECTION = new THREE.Vector3(25, 35, 18).normalize();
 
-const CAMERA_TARGET = new THREE.Vector3(2, 5.2, 0);
+const CAMERA_TARGET = new THREE.Vector3(1.2, 1.9, -8);
 
-/* [tipo, x, z, detalle, semilla]: el árbol principal queda a la derecha, detrás del texto hay espacio. */
-const TREE_LAYOUT = [
-  ['broadleaf', 6.5, -1, 1, 3],
-  ['broadleaf', -9, -8, 1, 17],
-  ['conifer', 13, -9, 1, 5],
-  ['conifer', -19, -22, 1, 9],
-  ['broadleaf', 1.5, -24, 0.6, 21],
-  ['conifer', -16, -20, 0.6, 33],
-  ['conifer', 21, -21, 0.6, 41],
-  ['broadleaf', -23, -11, 0.6, 52],
-  ['conifer', 9, -31, 0.6, 61],
-  ['broadleaf', -8, -35, 0.6, 77],
-  ['conifer', 28, -36, 0.6, 85],
-  ['conifer', -29, -31, 0.6, 93],
+/*
+ * Naranjal: hileras paralelas a la cámara con un pasillo en el medio, así la perspectiva
+ * se pierde en profundidad. Las hileras de afuera quedan dentro de la niebla con menos detalle.
+ */
+/* stagger: hileras vecinas desfasadas medio árbol, como en una plantación real. */
+const ROWS = [
+  { x: -3.6, detail: 1, end: -52, stagger: 0 },
+  { x: 3.6, detail: 1, end: -52, stagger: 1 },
+  { x: -10.8, detail: 0.6, end: -42, stagger: 1 },
+  { x: 10.8, detail: 0.6, end: -42, stagger: 0 },
+  { x: -18, detail: 0.5, end: -26, stagger: 0 },
+  { x: 18, detail: 0.5, end: -26, stagger: 1 },
 ];
+const TREE_SPACING = 4.6;
+const ROW_START_Z = 5;
+// Más allá de esta profundidad los árboles usan el menor detalle y no proyectan sombra.
+const FAR_Z = -16;
+
+/* [x, z, detalle, semilla] de cada naranjo. */
+function orchardLayout(isSmallScreen) {
+  const rng = createRng(606);
+  const rows = isSmallScreen ? ROWS.slice(0, 4) : ROWS;
+  const layout = [];
+  for (const row of rows) {
+    const endZ = isSmallScreen ? Math.max(row.end, -36) : row.end;
+    for (let z = ROW_START_Z - row.stagger * TREE_SPACING * 0.5; z > endZ; z -= TREE_SPACING) {
+      const detail = z < FAR_Z ? 0.5 : row.detail;
+      const x = row.x + (rng() - 0.5) * 0.5;
+      layout.push([x, z + (rng() - 0.5) * 0.6, detail, 100 + layout.length * 7]);
+    }
+  }
+  return layout;
+}
 
 function groundHeight(x, z) {
   const distance = Math.hypot(x, z + 10);
@@ -194,7 +212,8 @@ function createRocks() {
   const group = new THREE.Group();
   const rng = createRng(303);
   const material = new THREE.MeshStandardMaterial({ color: 0x8f8a7c, roughness: 0.9, flatShading: true });
-  const spots = [[3.5, 2.5], [9, 1], [-5, -2], [-12, -4], [15, -4], [0, -10]];
+  // En los pasillos, entre las hileras.
+  const spots = [[-0.9, 5.5], [1.2, -3], [7.2, 1.5], [-7.4, -2], [14.2, -6], [-0.4, -14]];
   for (const [x, z] of spots) {
     const geometry = new THREE.DodecahedronGeometry(1, 1);
     const p = geometry.attributes.position;
@@ -258,7 +277,7 @@ function createPollen(count) {
 }
 
 /**
- * Crea la escena del bosque dentro del canvas y la anima mientras el contenedor esté visible.
+ * Crea la escena del naranjal dentro del canvas y la anima mientras el contenedor esté visible.
  * Devuelve null si el navegador no soporta WebGL (el CSS muestra un degradado de respaldo).
  */
 export function initForest(canvas, container) {
@@ -309,24 +328,10 @@ export function initForest(canvas, container) {
   scene.add(createGrass(isSmallScreen ? 8000 : 18000, wind));
   scene.add(createRocks());
 
-  const layout = isSmallScreen ? TREE_LAYOUT.slice(0, 8) : TREE_LAYOUT;
-  for (const [type, x, z, detail, seed] of layout) {
-    const tree = createTree({ type, seed, detail, wind });
-    tree.position.set(x, groundHeight(x, z) - 0.1, z);
-    if (detail < 1) tree.traverse((obj) => { obj.castShadow = false; });
-    scene.add(tree);
-  }
-
-  // Bosque de fondo, con menos detalle porque queda dentro de la niebla.
-  const fillRng = createRng(505);
-  const fillCount = isSmallScreen ? 6 : 16;
-  for (let i = 0; i < fillCount; i++) {
-    const x = (fillRng() - 0.5) * 110;
-    const z = -45 - fillRng() * 35;
-    const type = fillRng() < 0.6 ? 'conifer' : 'broadleaf';
-    const tree = createTree({ type, seed: 1000 + i, detail: 0.5, wind });
-    tree.position.set(x, groundHeight(x, z) - 0.1, z);
-    tree.traverse((obj) => { obj.castShadow = false; });
+  for (const [x, z, detail, seed] of orchardLayout(isSmallScreen)) {
+    const tree = createTree({ type: 'orange', seed, detail, wind });
+    tree.position.set(x, groundHeight(x, z) - 0.05, z);
+    if (z < FAR_Z) tree.traverse((obj) => { obj.castShadow = false; });
     scene.add(tree);
   }
 
@@ -340,10 +345,10 @@ export function initForest(canvas, container) {
     camera.aspect = width / height;
     if (camera.aspect < 1) {
       camera.fov = 62;
-      camera.position.set(3, 3.5, 25);
+      camera.position.set(0.6, 3, 12);
     } else {
       camera.fov = 50;
-      camera.position.set(0, 3, 16);
+      camera.position.set(0.3, 3.1, 13.5);
     }
     camera.lookAt(CAMERA_TARGET);
     camera.updateProjectionMatrix();

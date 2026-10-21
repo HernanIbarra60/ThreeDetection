@@ -8,6 +8,8 @@
   --green-300: #a7c58d;
   --brown-700: #6b4c32;
   --brown-300: #c8ad8a;
+  --orange-600: #d4670b;
+  --orange-300: #f6b26b;
   --text: #2b2a25;
   --text-soft: #5d5a50;
 
@@ -302,11 +304,16 @@ p {
 
 .demo__notice {
   padding: 0.75rem 1rem;
-  background: #f3ecd9;
-  border-left: 4px solid var(--brown-300);
+  background: #fbefe0;
+  border-left: 4px solid var(--orange-300);
   border-radius: 8px;
   font-size: 0.95rem;
   color: var(--brown-700);
+}
+
+.demo__notice.is-simulated {
+  background: #f3ecd9;
+  border-left-color: var(--brown-300);
 }
 
 .demo__controls {
@@ -380,8 +387,31 @@ p {
   font-weight: 500;
 }
 
-.demo__coverage strong {
-  color: var(--green-700);
+.demo__stats {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0;
+}
+
+.demo__stats div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.demo__stats dt {
+  color: var(--text-soft);
+}
+
+.demo__stats dt::after {
+  content: ":";
+}
+
+.demo__stats dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--orange-600);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Footer */

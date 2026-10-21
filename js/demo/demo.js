@@ -1,8 +1,9 @@
 import { Webcam, describeCameraError } from './camera.js';
 import { loadModel, segment, MODEL_INFO } from './segmenter.js';
 
-const MASK_FILL = [96, 214, 82, 140];
-const MASK_EDGE = [214, 255, 150, 235];
+// Rojo anaranjado y borde claro: sobre naranjas un relleno del mismo tono casi no se nota.
+const MASK_FILL = [255, 84, 0, 150];
+const MASK_EDGE = [255, 248, 215, 255];
 const MAX_DISPLAY_WIDTH = 1280;
 
 export function initDemo() {
@@ -13,6 +14,8 @@ export function initDemo() {
   const video = document.getElementById('camera-video');
   const placeholder = document.getElementById('stage-placeholder');
   const status = document.getElementById('demo-status');
+  const notice = document.getElementById('model-notice');
+  const countValue = document.getElementById('count-value');
   const coverage = document.getElementById('coverage-value');
 
   const stageCtx = stage.getContext('2d');
@@ -26,8 +29,31 @@ export function initDemo() {
   let image = null;
   let loopId = 0;
   let busy = false;
+  // Última máscara calculada y número de la última inferencia pedida (descarta resultados viejos).
+  let lastResult = null;
+  let requestId = 0;
+  let inferring = false;
 
-  loadModel();
+  loadModel().then(showModelNotice);
+
+  function showModelNotice() {
+    const title = document.createElement('strong');
+    let text;
+    if (MODEL_INFO.status === 'loading') {
+      title.textContent = 'Cargando modelo…';
+      text = ' La primera vez descarga unos 25 MB.';
+    } else if (MODEL_INFO.simulated) {
+      title.textContent = 'Máscara simulada:';
+      text = ' no se encontró el modelo en model/, así que la segmentación se aproxima ' +
+        'detectando los colores naranjas de la imagen.';
+    } else {
+      title.textContent = `Modelo: ${MODEL_INFO.name}.`;
+      text = ' Corre en tu navegador con ONNX Runtime Web: las imágenes no salen de tu computadora.';
+    }
+    notice.replaceChildren(title, text);
+    notice.classList.toggle('is-simulated', MODEL_INFO.simulated && MODEL_INFO.status === 'ready');
+  }
+  showModelNotice();
 
   function setStatus(text, isError = false) {
     status.textContent = text;
@@ -39,10 +65,16 @@ export function initDemo() {
     cameraButton.setAttribute('aria-pressed', String(active));
   }
 
+  function showStats(result) {
+    countValue.textContent = result ? String(result.count) : '—';
+    coverage.textContent = result ? `${(result.coverage * 100).toFixed(1)} %` : '—';
+  }
+
   function showPlaceholder() {
     stage.hidden = true;
     placeholder.hidden = false;
-    coverage.textContent = '—';
+    lastResult = null;
+    showStats(null);
   }
 
   function resizeCanvas(canvas, width, height) {
@@ -69,7 +101,25 @@ export function initDemo() {
     maskCtx.putImageData(pixels, 0, 0);
   }
 
-  async function processFrame(source, sourceWidth, sourceHeight, mirror) {
+  /* Segmenta el frame actual de `source`. El frame se copia antes de esperar al modelo. */
+  async function analyze(source, sourceWidth, sourceHeight) {
+    const id = ++requestId;
+    await loadModel();
+    // El modelo recibe el frame con el lado mayor igual a su tamaño de entrada.
+    const scale = MODEL_INFO.inputSize / Math.max(sourceWidth, sourceHeight);
+    const workWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const workHeight = Math.max(1, Math.round(sourceHeight * scale));
+    resizeCanvas(work, workWidth, workHeight);
+    workCtx.drawImage(source, 0, 0, workWidth, workHeight);
+    const result = await segment(workCtx.getImageData(0, 0, workWidth, workHeight));
+    if (id !== requestId) return null;
+    lastResult = result;
+    paintMask(result);
+    showStats(result);
+    return result;
+  }
+
+  function draw(source, sourceWidth, sourceHeight, mirror) {
     const scale = Math.min(1, MAX_DISPLAY_WIDTH / sourceWidth);
     const displayWidth = Math.round(sourceWidth * scale);
     const displayHeight = Math.round(sourceHeight * scale);
@@ -77,34 +127,45 @@ export function initDemo() {
     stage.hidden = false;
     placeholder.hidden = true;
 
-    // El modelo trabaja sobre una versión reducida del frame.
-    const workWidth = MODEL_INFO.inputWidth;
-    const workHeight = Math.max(1, Math.round((sourceHeight / sourceWidth) * workWidth));
-    resizeCanvas(work, workWidth, workHeight);
-    workCtx.drawImage(source, 0, 0, workWidth, workHeight);
-    const result = await segment(workCtx.getImageData(0, 0, workWidth, workHeight));
-
     stageCtx.save();
     if (mirror) {
       stageCtx.translate(displayWidth, 0);
       stageCtx.scale(-1, 1);
     }
     stageCtx.drawImage(source, 0, 0, displayWidth, displayHeight);
-    if (maskToggle.checked) {
-      paintMask(result);
+    if (maskToggle.checked && lastResult) {
       stageCtx.imageSmoothingEnabled = true;
       stageCtx.imageSmoothingQuality = 'high';
       stageCtx.drawImage(maskCanvas, 0, 0, displayWidth, displayHeight);
     }
     stageCtx.restore();
-
-    coverage.textContent = `${(result.coverage * 100).toFixed(1)} %`;
   }
 
-  async function cameraLoop(id) {
+  async function showImage(img) {
+    lastResult = null;
+    draw(img, img.naturalWidth, img.naturalHeight, false);
+    const result = await analyze(img, img.naturalWidth, img.naturalHeight);
+    if (result && mode === 'image' && image === img) draw(img, img.naturalWidth, img.naturalHeight, false);
+    return result;
+  }
+
+  /*
+   * El video se dibuja en cada frame con la última máscara disponible. Mientras hay una
+   * inferencia en curso no se lanza otra: con un modelo lento se saltean frames en vez de trabar el video.
+   */
+  function cameraLoop(id) {
     if (id !== loopId || mode !== 'camera') return;
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
-      await processFrame(video, video.videoWidth, video.videoHeight, true);
+      if (!inferring) {
+        inferring = true;
+        analyze(video, video.videoWidth, video.videoHeight)
+          .catch((error) => {
+            console.error(error);
+            setStatus('Falló la segmentación del frame.', true);
+          })
+          .finally(() => { inferring = false; });
+      }
+      draw(video, video.videoWidth, video.videoHeight, true);
     }
     requestAnimationFrame(() => cameraLoop(id));
   }
@@ -115,9 +176,10 @@ export function initDemo() {
     setCameraButton(false);
     if (image) {
       mode = 'image';
-      processFrame(image, image.naturalWidth, image.naturalHeight, false);
+      showImage(image);
     } else {
       mode = 'idle';
+      requestId++;
       showPlaceholder();
     }
   }
@@ -136,8 +198,9 @@ export function initDemo() {
     try {
       await webcam.start();
       mode = 'camera';
+      lastResult = null;
       setCameraButton(true);
-      setStatus('Cámara activa: segmentando en tiempo real.');
+      setStatus('Cámara activa: buscando naranjas en tiempo real.');
       loopId++;
       cameraLoop(loopId);
     } catch (error) {
@@ -163,11 +226,23 @@ export function initDemo() {
     const img = new Image();
     img.onload = async () => {
       URL.revokeObjectURL(url);
-      if (webcam.active) stopCamera();
+      if (webcam.active) {
+        webcam.stop();
+        loopId++;
+        setCameraButton(false);
+      }
       image = img;
       mode = 'image';
-      await processFrame(img, img.naturalWidth, img.naturalHeight, false);
-      setStatus(`Imagen analizada: ${file.name}`);
+      setStatus(`Analizando ${file.name}…`);
+      try {
+        const result = await showImage(img);
+        if (!result) return;
+        const naranjas = result.count === 1 ? '1 naranja' : `${result.count} naranjas`;
+        setStatus(`Imagen analizada: ${file.name} · ${naranjas}.`);
+      } catch (error) {
+        console.error(error);
+        setStatus('No se pudo segmentar la imagen.', true);
+      }
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -177,9 +252,7 @@ export function initDemo() {
   });
 
   maskToggle.addEventListener('change', () => {
-    if (mode === 'image' && image) {
-      processFrame(image, image.naturalWidth, image.naturalHeight, false);
-    }
+    if (mode === 'image' && image) draw(image, image.naturalWidth, image.naturalHeight, false);
   });
 
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
