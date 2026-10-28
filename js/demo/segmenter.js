@@ -11,8 +11,9 @@
  *       count     cantidad de naranjas detectadas.
  *
  * Si existen model/model.json y model/orange-seg.onnx (los genera naranjas.ipynb), se usa
- * YOLO26n-seg con ONNX Runtime Web. Si no, la máscara se simula detectando los píxeles de
- * color naranja, así la página funciona igual antes de exportar el modelo.
+ * YOLO26n-seg con ONNX Runtime Web en un Web Worker (model.worker.js), con WebGPU si el navegador
+ * lo tiene. Si no, la máscara se simula detectando los píxeles de color naranja, así la página
+ * funciona igual antes de exportar el modelo.
  */
 
 const MODEL_DIR = 'model/';
@@ -23,6 +24,7 @@ export const MODEL_INFO = {
   simulated: true,
   reason: '',
   inputSize: 256,
+  backend: '', // 'webgpu' | 'wasm' con el modelo real
 };
 
 /* ---------- Simulación por color ---------- */
@@ -116,207 +118,52 @@ function removeSmallBlobs(mask, width, height, minArea) {
   return count;
 }
 
-/* ---------- Modelo real: YOLO26n-seg con ONNX Runtime Web ---------- */
+/* ---------- Modelo real: YOLO26n-seg en un Web Worker (model.worker.js) ---------- */
 
-// Lado mayor de la máscara devuelta: los prototipos del modelo son de 160x160, más no aporta.
-const MASK_SIZE = 320;
-// Solo para salidas crudas sin NMS ([1, 4 + clases + 32, anclas]).
-const NMS_IOU = 0.7;
-const LETTERBOX_GRAY = 'rgb(114, 114, 114)';
+let worker = null;
+let nextId = 0;
+const pending = new Map();
 
-let ort = null;
-let session = null;
-let config = null;
-let letterbox = null;
-let source = null;
+/* Manda un pedido al worker y espera su respuesta (cada una trae el id del pedido). */
+function call(message, transfer = []) {
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ ...message, id }, transfer);
+  });
+}
 
 async function loadOnnx() {
-  const response = await fetch(`${MODEL_DIR}model.json`, { cache: 'no-cache' });
-  if (!response.ok) throw new Error(`no se encontró ${MODEL_DIR}model.json`);
-  config = await response.json();
-  ort = await import('onnxruntime-web');
-  session = await ort.InferenceSession.create(`${MODEL_DIR}${config.file ?? 'orange-seg.onnx'}`, {
-    executionProviders: ['wasm'],
-    graphOptimizationLevel: 'all',
-  });
-
-  const size = config.imgsz;
-  letterbox = document.createElement('canvas');
-  letterbox.width = letterbox.height = size;
-  source = document.createElement('canvas');
-
-  Object.assign(MODEL_INFO, {
-    name: config.name ?? 'YOLO26n-seg',
-    simulated: false,
-    inputSize: size,
-  });
-}
-
-/* Ajusta la imagen dentro de un cuadrado de imgsz con bordes grises, como Ultralytics. */
-function toTensor(imageData) {
-  const size = config.imgsz;
-  const { width, height } = imageData;
-  const scale = Math.min(size / width, size / height);
-  const w = Math.round(width * scale);
-  const h = Math.round(height * scale);
-  const padX = Math.round((size - w) / 2 - 0.1);
-  const padY = Math.round((size - h) / 2 - 0.1);
-
-  source.width = width;
-  source.height = height;
-  source.getContext('2d').putImageData(imageData, 0, 0);
-  const ctx = letterbox.getContext('2d', { willReadFrequently: true });
-  ctx.fillStyle = LETTERBOX_GRAY;
-  ctx.fillRect(0, 0, size, size);
-  ctx.drawImage(source, padX, padY, w, h);
-  const rgba = ctx.getImageData(0, 0, size, size).data;
-
-  // RGBA intercalado -> 3 planos RGB (NCHW) normalizados a 0..1.
-  const area = size * size;
-  const chw = new Float32Array(3 * area);
-  for (let p = 0, i = 0; p < area; p++, i += 4) {
-    chw[p] = rgba[i] / 255;
-    chw[p + area] = rgba[i + 1] / 255;
-    chw[p + 2 * area] = rgba[i + 2] / 255;
-  }
-  return {
-    tensor: new ort.Tensor('float32', chw, [1, 3, size, size]),
-    transform: { scale, padX, padY },
+  worker = new Worker(new URL('./model.worker.js', import.meta.url), { type: 'module' });
+  worker.onmessage = ({ data }) => {
+    const request = pending.get(data.id);
+    if (!request) return;
+    pending.delete(data.id);
+    if (data.type === 'error') request.reject(new Error(data.message));
+    else request.resolve(data);
   };
-}
+  // Si el worker no arranca (por ejemplo, no se pudo descargar ONNX Runtime) falla todo lo pendiente.
+  worker.onerror = (event) => {
+    const error = new Error(event.message || 'no se pudo iniciar el worker del modelo');
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+  };
 
-/* Salida [1, N, 6 + nm]: x1, y1, x2, y2, confianza, clase, coeficientes (exportado con o sin NMS). */
-function parseDetections(output, nm, conf) {
-  const [, n, stride] = output.dims;
-  const d = output.data;
-  const boxes = [];
-  for (let i = 0; i < n; i++) {
-    const o = i * stride;
-    if (d[o + 4] < conf || Math.round(d[o + 5]) !== config.classId) continue;
-    boxes.push({
-      x1: d[o], y1: d[o + 1], x2: d[o + 2], y2: d[o + 3],
-      score: d[o + 4],
-      coefs: d.subarray(o + 6, o + 6 + nm),
-    });
-  }
-  return boxes;
-}
-
-/* Salida cruda [1, 4 + nc + nm, anclas]: cx, cy, w, h, puntaje por clase, coeficientes. Requiere NMS. */
-function parseRaw(output, nm, conf) {
-  const [, channels, anchors] = output.dims;
-  const d = output.data;
-  const nc = channels - 4 - nm;
-  const candidates = [];
-  for (let a = 0; a < anchors; a++) {
-    const score = d[(4 + config.classId) * anchors + a];
-    if (score < conf) continue;
-    const cx = d[a];
-    const cy = d[anchors + a];
-    const w = d[2 * anchors + a];
-    const h = d[3 * anchors + a];
-    const coefs = new Float32Array(nm);
-    for (let k = 0; k < nm; k++) coefs[k] = d[(4 + nc + k) * anchors + a];
-    candidates.push({ x1: cx - w / 2, y1: cy - h / 2, x2: cx + w / 2, y2: cy + h / 2, score, coefs });
-  }
-  candidates.sort((a, b) => b.score - a.score);
-  const kept = [];
-  for (const box of candidates) {
-    if (kept.every((k) => iou(k, box) <= NMS_IOU)) kept.push(box);
-  }
-  return kept;
-}
-
-function iou(a, b) {
-  const w = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1);
-  const h = Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1);
-  if (w <= 0 || h <= 0) return 0;
-  const inter = w * h;
-  return inter / ((a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter);
-}
-
-/*
- * Une las máscaras de todas las naranjas en una sola. Cada máscara es sigmoide(coeficientes ·
- * prototipos), recortada a su caja; sigmoide > 0.5 equivale a que el producto sea > 0.
- */
-function paintInstances(boxes, protos, { scale, padX, padY }, image, out) {
-  const [, nm, mh, mw] = protos.dims;
-  const p = protos.data;
-  const area = mh * mw;
-  const toProto = mw / config.imgsz;
-  // Coordenada del modelo (letterbox) de cada píxel de la máscara de salida.
-  const sx = image.width / out.width;
-  const sy = image.height / out.height;
-  const modelX = (u) => ((u + 0.5) * sx) * scale + padX;
-  const modelY = (v) => ((v + 0.5) * sy) * scale + padY;
-
-  for (const box of boxes) {
-    // Región de prototipos que cubre la caja, con un margen para interpolar.
-    const px0 = Math.max(0, Math.floor(box.x1 * toProto) - 1);
-    const py0 = Math.max(0, Math.floor(box.y1 * toProto) - 1);
-    const px1 = Math.min(mw - 1, Math.ceil(box.x2 * toProto) + 1);
-    const py1 = Math.min(mh - 1, Math.ceil(box.y2 * toProto) + 1);
-    const rw = px1 - px0 + 1;
-    const rh = py1 - py0 + 1;
-    if (rw < 2 || rh < 2) continue;
-    const logits = new Float32Array(rw * rh);
-    for (let y = 0; y < rh; y++) {
-      for (let x = 0; x < rw; x++) {
-        const idx = (py0 + y) * mw + px0 + x;
-        let sum = 0;
-        for (let k = 0; k < nm; k++) sum += box.coefs[k] * p[k * area + idx];
-        logits[y * rw + x] = sum;
-      }
-    }
-
-    // Píxeles de salida dentro de la caja.
-    const u0 = Math.max(0, Math.floor(((box.x1 - padX) / scale) / sx));
-    const u1 = Math.min(out.width - 1, Math.ceil(((box.x2 - padX) / scale) / sx));
-    const v0 = Math.max(0, Math.floor(((box.y1 - padY) / scale) / sy));
-    const v1 = Math.min(out.height - 1, Math.ceil(((box.y2 - padY) / scale) / sy));
-    for (let v = v0; v <= v1; v++) {
-      const my = modelY(v);
-      if (my < box.y1 || my > box.y2) continue;
-      // Interpolación bilineal entre los 4 prototipos más cercanos.
-      const fy = Math.min(Math.max(my * toProto - 0.5 - py0, 0), rh - 1);
-      const y0 = Math.min(Math.floor(fy), rh - 2);
-      const ty = fy - y0;
-      for (let u = u0; u <= u1; u++) {
-        const o = v * out.width + u;
-        if (out.mask[o]) continue;
-        const mx = modelX(u);
-        if (mx < box.x1 || mx > box.x2) continue;
-        const fx = Math.min(Math.max(mx * toProto - 0.5 - px0, 0), rw - 1);
-        const x0 = Math.min(Math.floor(fx), rw - 2);
-        const tx = fx - x0;
-        const i = y0 * rw + x0;
-        const top = logits[i] + (logits[i + 1] - logits[i]) * tx;
-        const bottom = logits[i + rw] + (logits[i + rw + 1] - logits[i + rw]) * tx;
-        if (top + (bottom - top) * ty > 0) out.mask[o] = 1;
-      }
-    }
-  }
+  // El worker resuelve las rutas relativas a su propio archivo: se le pasa la carpeta absoluta.
+  const info = await call({ type: 'load', modelDir: new URL(MODEL_DIR, document.baseURI).href });
+  Object.assign(MODEL_INFO, {
+    name: info.name,
+    simulated: false,
+    inputSize: info.imgsz,
+    backend: info.backend,
+  });
 }
 
 async function segmentWithModel(imageData) {
-  const { tensor, transform } = toTensor(imageData);
-  const outputs = await session.run({ [session.inputNames[0]]: tensor });
-  const values = Object.values(outputs);
-  const protos = values.find((t) => t.dims.length === 4);
-  const detections = values.find((t) => t.dims.length === 3);
-  const nm = protos.dims[1];
-  const conf = config.conf ?? 0.25;
-
-  const boxes = detections.dims[2] === 6 + nm
-    ? parseDetections(detections, nm, conf)
-    : parseRaw(detections, nm, conf);
-
-  const factor = MASK_SIZE / Math.max(imageData.width, imageData.height);
-  const width = Math.max(1, Math.round(imageData.width * factor));
-  const height = Math.max(1, Math.round(imageData.height * factor));
-  const out = { mask: new Uint8Array(width * height), width, height };
-  paintInstances(boxes, protos, transform, imageData, out);
-  return result(out.mask, width, height, boxes.length);
+  // El buffer del frame se transfiere al worker en vez de copiarse.
+  const out = await call({ type: 'segment', imageData }, [imageData.data.buffer]);
+  MODEL_INFO.backend = out.backend;
+  return result(out.mask, out.width, out.height, out.count);
 }
 
 /* ---------- API pública ---------- */
@@ -333,7 +180,8 @@ export function loadModel() {
   loading ??= loadOnnx()
     .catch((error) => {
       console.warn('Modelo ONNX no disponible, se usa la simulación por color.', error);
-      session = null;
+      worker?.terminate();
+      worker = null;
       Object.assign(MODEL_INFO, {
         name: 'Simulación por color (tono naranja en HSV)',
         simulated: true,
@@ -358,7 +206,7 @@ let queue = Promise.resolve();
 export function segment(imageData) {
   const run = queue.then(async () => {
     await loadModel();
-    return session ? segmentWithModel(imageData) : segmentByColor(imageData);
+    return worker ? segmentWithModel(imageData) : segmentByColor(imageData);
   });
   queue = run.catch(() => {});
   return run;

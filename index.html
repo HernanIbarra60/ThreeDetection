@@ -14,8 +14,7 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-        "onnxruntime-web": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.wasm.min.mjs"
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
       }
     }
   </script>
@@ -84,6 +83,11 @@
               Activar cámara
             </button>
 
+            <label id="camera-picker" class="camera-select" hidden>
+              <span>Cámara</span>
+              <select id="camera-select"></select>
+            </label>
+
             <label class="btn btn--secondary" for="image-input">
               Subir imagen
               <input id="image-input" class="visually-hidden" type="file" accept="image/*">
@@ -113,6 +117,10 @@
               <div>
                 <dt>Cobertura</dt>
                 <dd id="coverage-value">—</dd>
+              </div>
+              <div>
+                <dt>Velocidad</dt>
+                <dd id="speed-value">—</dd>
               </div>
             </dl>
           </div>

@@ -1,3 +1,5 @@
+const RESOLUTION = { width: { ideal: 1280 }, height: { ideal: 720 } };
+
 export class Webcam {
   #stream = null;
 
@@ -9,17 +11,37 @@ export class Webcam {
     return this.#stream !== null;
   }
 
-  async start() {
+  /* Id de la cámara en uso, o null si está apagada. */
+  get deviceId() {
+    return this.#stream?.getVideoTracks()[0]?.getSettings().deviceId ?? null;
+  }
+
+  /* Cámaras disponibles. Los nombres solo aparecen después de dar permiso. */
+  static async list() {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((device) => device.kind === 'videoinput' && device.deviceId)
+      .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `Cámara ${i + 1}` }));
+  }
+
+  async start(deviceId = null) {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       const error = new Error('Contexto inseguro');
       error.name = 'InsecureContextError';
       throw error;
     }
 
-    this.#stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-      audio: false,
-    });
+    const video = deviceId
+      ? { ...RESOLUTION, deviceId: { exact: deviceId } }
+      : { ...RESOLUTION, facingMode: 'user' };
+    try {
+      this.#stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    } catch (error) {
+      // La cámara elegida ya no está conectada: se usa la que dé el navegador.
+      if (!deviceId || !['OverconstrainedError', 'NotFoundError'].includes(error.name)) throw error;
+      return this.start(null);
+    }
     this.video.srcObject = this.#stream;
     try {
       await this.video.play();

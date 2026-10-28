@@ -5,9 +5,29 @@ import { loadModel, segment, MODEL_INFO } from './segmenter.js';
 const MASK_FILL = [255, 84, 0, 150];
 const MASK_EDGE = [255, 248, 215, 255];
 const MAX_DISPLAY_WIDTH = 1280;
+// Cámara elegida la última vez (por ejemplo, una webcam USB en vez de la integrada).
+const CAMERA_KEY = 'threedetection.camera';
+
+function savedCamera() {
+  try {
+    return localStorage.getItem(CAMERA_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveCamera(deviceId) {
+  try {
+    localStorage.setItem(CAMERA_KEY, deviceId);
+  } catch {
+    // Sin almacenamiento (ventana privada, por ejemplo) solo no se recuerda la elección.
+  }
+}
 
 export function initDemo() {
   const cameraButton = document.getElementById('camera-toggle');
+  const cameraPicker = document.getElementById('camera-picker');
+  const cameraSelect = document.getElementById('camera-select');
   const imageInput = document.getElementById('image-input');
   const maskToggle = document.getElementById('mask-toggle');
   const stage = document.getElementById('stage-canvas');
@@ -17,6 +37,7 @@ export function initDemo() {
   const notice = document.getElementById('model-notice');
   const countValue = document.getElementById('count-value');
   const coverage = document.getElementById('coverage-value');
+  const speedValue = document.getElementById('speed-value');
 
   const stageCtx = stage.getContext('2d');
   const work = document.createElement('canvas');
@@ -33,6 +54,8 @@ export function initDemo() {
   let lastResult = null;
   let requestId = 0;
   let inferring = false;
+  // Backend que muestra el aviso: si WebGPU falla en plena ejecución, el worker pasa a WASM.
+  let shownBackend = null;
 
   loadModel().then(showModelNotice);
 
@@ -47,9 +70,11 @@ export function initDemo() {
       text = ' no se encontró el modelo en model/, así que la segmentación se aproxima ' +
         'detectando los colores naranjas de la imagen.';
     } else {
+      const where = MODEL_INFO.backend === 'webgpu' ? 'la placa de video (WebGPU)' : 'el procesador (WASM)';
       title.textContent = `Modelo: ${MODEL_INFO.name}.`;
-      text = ' Corre en tu navegador con ONNX Runtime Web: las imágenes no salen de tu computadora.';
+      text = ` Corre en tu navegador con ONNX Runtime Web, en ${where}: las imágenes no salen de tu computadora.`;
     }
+    shownBackend = MODEL_INFO.backend;
     notice.replaceChildren(title, text);
     notice.classList.toggle('is-simulated', MODEL_INFO.simulated && MODEL_INFO.status === 'ready');
   }
@@ -60,14 +85,29 @@ export function initDemo() {
     status.classList.toggle('is-error', isError);
   }
 
+  /* Llena el selector de cámaras. Solo se muestra si hay más de una. */
+  async function refreshCameras() {
+    let cameras = [];
+    try {
+      cameras = await Webcam.list();
+    } catch (error) {
+      console.warn('No se pudo listar las cámaras.', error);
+    }
+    const current = webcam.deviceId ?? savedCamera();
+    cameraSelect.replaceChildren(...cameras.map(({ deviceId, label }) => new Option(label, deviceId)));
+    if (cameras.some((camera) => camera.deviceId === current)) cameraSelect.value = current;
+    cameraPicker.hidden = cameras.length < 2;
+  }
+
   function setCameraButton(active) {
     cameraButton.textContent = active ? 'Desactivar cámara' : 'Activar cámara';
     cameraButton.setAttribute('aria-pressed', String(active));
   }
 
-  function showStats(result) {
+  function showStats(result, ms) {
     countValue.textContent = result ? String(result.count) : '—';
     coverage.textContent = result ? `${(result.coverage * 100).toFixed(1)} %` : '—';
+    speedValue.textContent = result ? `${Math.round(ms)} ms · ${(1000 / ms).toFixed(1)} FPS` : '—';
   }
 
   function showPlaceholder() {
@@ -111,11 +151,15 @@ export function initDemo() {
     const workHeight = Math.max(1, Math.round(sourceHeight * scale));
     resizeCanvas(work, workWidth, workHeight);
     workCtx.drawImage(source, 0, 0, workWidth, workHeight);
+    // Tiempo total del frame: preparar la imagen, pasarla al worker, inferir y armar la máscara.
+    const start = performance.now();
     const result = await segment(workCtx.getImageData(0, 0, workWidth, workHeight));
+    const ms = performance.now() - start;
     if (id !== requestId) return null;
     lastResult = result;
     paintMask(result);
-    showStats(result);
+    showStats(result, ms);
+    if (MODEL_INFO.backend !== shownBackend) showModelNotice();
     return result;
   }
 
@@ -196,13 +240,15 @@ export function initDemo() {
     cameraButton.disabled = true;
     setStatus('Solicitando permiso para usar la cámara…');
     try {
-      await webcam.start();
+      await webcam.start(cameraSelect.value || savedCamera());
       mode = 'camera';
       lastResult = null;
       setCameraButton(true);
       setStatus('Cámara activa: buscando naranjas en tiempo real.');
       loopId++;
       cameraLoop(loopId);
+      // Con el permiso dado ya se conocen los nombres de las cámaras.
+      await refreshCameras();
     } catch (error) {
       console.error(error);
       setCameraButton(false);
@@ -250,6 +296,31 @@ export function initDemo() {
     };
     img.src = url;
   });
+
+  cameraSelect.addEventListener('change', async () => {
+    saveCamera(cameraSelect.value);
+    if (!webcam.active || busy) return;
+    // Cambio en caliente: el bucle sigue corriendo y retoma con el video de la cámara nueva.
+    busy = true;
+    cameraSelect.disabled = true;
+    try {
+      webcam.stop();
+      requestId++; // descarta la máscara de un frame de la cámara anterior que siga en curso
+      lastResult = null;
+      await webcam.start(cameraSelect.value);
+      setStatus(`Cámara activa: ${cameraSelect.selectedOptions[0]?.text ?? 'cámara elegida'}.`);
+    } catch (error) {
+      console.error(error);
+      stopCamera();
+      setStatus(describeCameraError(error), true);
+    } finally {
+      busy = false;
+      cameraSelect.disabled = false;
+    }
+  });
+
+  navigator.mediaDevices?.addEventListener?.('devicechange', refreshCameras);
+  refreshCameras();
 
   maskToggle.addEventListener('change', () => {
     if (mode === 'image' && image) draw(image, image.naturalWidth, image.naturalHeight, false);

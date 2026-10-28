@@ -324,6 +324,33 @@ p {
   margin: 1.5rem 0;
 }
 
+.camera-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-soft);
+}
+
+.camera-select[hidden] {
+  display: none;
+}
+
+.camera-select select {
+  max-width: 16rem;
+  padding: 0.7rem 1rem;
+  border: 2px solid var(--green-700);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--green-700);
+  font: 600 0.95rem/1 var(--font-body);
+  cursor: pointer;
+}
+
+.camera-select select:focus-visible {
+  outline: 3px solid var(--green-300);
+  outline-offset: 3px;
+}
+
 .toggle {
   display: inline-flex;
   align-items: center;
@@ -389,7 +416,8 @@ p {
 
 .demo__stats {
   display: flex;
-  gap: 1.5rem;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
   margin: 0;
 }
 
