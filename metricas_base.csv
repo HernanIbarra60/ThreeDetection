@@ -1,0 +1,2 @@
+modelo,caja mAP50,caja mAP50-95,máscara mAP50,máscara mAP50-95,precisión,recall,MAE conteo
+"Base (COCO, clase 49)",0.2267,0.1514,0.2122,0.1296,0.5562,0.2207,11.14
