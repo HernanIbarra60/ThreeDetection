@@ -5,6 +5,7 @@ Página web del proyecto de la cátedra de Inteligencia Artificial. Por ahora el
 
 - **Naranjal 3D** generado proceduralmente con [three.js](https://threejs.org/) (naranjos con frutas, pasto y viento).
 - **Demo de segmentación** con la webcam o subiendo una imagen: marca cada naranja, las cuenta y calcula la cobertura.
+- **Medición de distancia y volumen** de cada naranja con una sola cámara, con el modelo geométrico de AGRO-YOLO-V.
 - El modelo corre **en el navegador** con [ONNX Runtime Web](https://onnxruntime.ai/docs/tutorials/web/): las imágenes no se suben a ningún servidor.
 - Sitio estático: HTML, CSS y JavaScript, sin paso de build.
 
@@ -43,6 +44,52 @@ en la página antes de exportar el modelo.
 
 La primera carga del modelo descarga unos 25 MB (el `.onnx` y el runtime de WebAssembly). Después
 el navegador los guarda en caché.
+
+## Medición de distancia y volumen
+
+Se adapta el modelo geométrico de AGRO-YOLO-V: *Sukkuea et al., IEEE Access, 2026,
+DOI [10.1109/ACCESS.2026.3667161](https://doi.org/10.1109/ACCESS.2026.3667161)*. El código está en
+[`js/demo/geometry.js`](js/demo/geometry.js) y se activa en el bloque **Medición** de la demo.
+
+Para cada naranja segmentada:
+
+- **Área proyectada**, como en el paper: envolvente convexa de la máscara y fórmula del cordón de
+  zapato, `A` en píxeles². Como la envolvente pasa por los centros de los píxeles extremos, se le
+  suma un borde de 0,3 px (`0,3·perímetro + π·0,3²`), calibrado con discos digitales: sin él, una
+  naranja de 10 px de radio mide un 4 % menos. Radio aparente: `r = √(A / π)`.
+- **Distancia focal**: `f = (W / 2) / tan(FOV_h / 2)`, con `W` el ancho de la máscara. Se guarda
+  normalizada como `f / W` para que no dependa de la resolución. La calibración la reemplaza.
+- **Modo distancia** (diámetro supuesto `D`, por defecto 75 mm): `Z = (D / 2)·√(1 + (f / r)²)`,
+  la distancia de la cámara al centro de una esfera cuya silueta mide `r`.
+- **Modo tamaño y volumen** (distancia fija `Z`, como la cinta transportadora del paper):
+  `V = k·A^(3/2)` con `k = 4 / (3√π)·(Z / f)³` (ecuaciones 1 y 3 del paper) y
+  `D = 2Z·sen(arctan(r / f))`.
+- Las naranjas que tocan el borde de la imagen tienen el área truncada: se marcan con «?».
+
+**Calibrar:** poné una naranja entera frente a la cámara, medí la distancia de la lente a su centro
+y tocá **Calibrar**. Con el diámetro del campo (75 mm por defecto) se despeja
+`f / W = r·√((Z / R)² − 1) / W`, que se guarda en el navegador (`localStorage`). Mientras haya
+calibración, el campo de visión muestra el equivalente y no se puede editar; **Restablecer** la
+borra. La calibración vale para esa cámara y esa resolución: el zoom o un recorte la invalidan, y
+las fotos subidas de otra cámara necesitan su propio campo de visión.
+
+**Validación:** [`validacion.html`](validacion.html) (enlazada desde la demo) recorre un naranjo 3D
+con una cámara virtual a distancias y ángulos conocidos, pasa cada captura por el mismo modelo y
+compara con la posición y el tamaño reales de cada fruta: porcentaje de mediciones válidas, MAE,
+RMSE y error porcentual por rango de distancia, al estilo de Coll-Ribes et al. La distancia se
+mide con la focal exacta de la cámara virtual y con la de un campo de visión supuesto; el volumen,
+con la distancia real. La escala se fija para que el diámetro medio de las frutas equivalga a
+75 mm. Se puede descargar el detalle por fruta en CSV.
+
+**Limitaciones:**
+
+- En modo distancia el diámetro supuesto hereda la variabilidad de tamaño de las naranjas: una
+  fruta un 10 % más grande que el supuesto parece un 10 % más cerca.
+- La oclusión (hojas, otras naranjas) achica el área visible y hace que la naranja parezca más
+  lejos. La envolvente convexa compensa los huecos, pero no las partes tapadas en el borde.
+- Fuera del eje óptico la silueta de una esfera es una elipse más grande que en el centro: las
+  naranjas en las esquinas de un gran angular parecen algo más cerca.
+- En la simulación por color, naranjas que se tocan forman una sola mancha.
 
 ## Correr en local
 
@@ -84,5 +131,9 @@ js/scene/forest.js      Escena 3D: cielo, luces, suelo, pasto e hileras del nara
 js/scene/tree.js        Generador procedural de árboles (naranjo con frutas) y viento
 js/demo/camera.js       Manejo de la webcam
 js/demo/segmenter.js    Modelo: YOLO26n-seg con ONNX Runtime Web, o simulación por color
+js/demo/model.worker.js Inferencia en un Web Worker: máscara y estadísticas por naranja
+js/demo/geometry.js     Modelo geométrico: envolvente convexa, distancia, tamaño y volumen
 js/demo/demo.js         Lógica de la demo
+validacion.html         Validación de la medición con el naranjal 3D
+js/validation/benchmark.js  Barrido de la cámara virtual y métricas
 ```

@@ -646,6 +646,8 @@ function createFruits(leafMatrices, crownCenter, { chance, radius, color }, rng,
   fruitGeometry ??= new THREE.SphereGeometry(1, 9, 6);
   const material = applyWind(new THREE.MeshStandardMaterial({ roughness: 0.5 }), uniforms);
   const fruits = new THREE.InstancedMesh(fruitGeometry, material, matrices.length);
+  // Nombre para encontrarlas desde la validación (js/validation/benchmark.js).
+  fruits.name = 'fruits';
   const hsl = {};
   new THREE.Color(color).getHSL(hsl);
   const tint = new THREE.Color();

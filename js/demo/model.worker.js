@@ -4,12 +4,16 @@
  *
  * Mensajes (todos llevan el `id` del pedido):
  *   → { type: 'load', modelDir }      ← { type: 'loaded', name, imgsz, backend }
- *   → { type: 'segment', imageData }  ← { type: 'result', mask, width, height, count, backend }
+ *   → { type: 'segment', imageData }  ← { type: 'result', mask, width, height, count, instances, backend }
  *   ← { type: 'error', message } si algo falla.
+ *
+ * instances: una entrada por naranja con píxeles en la máscara (ver geometry.js):
+ *   { pixels, hullArea, minU, maxU, minV, maxV, cx, cy, score, touchesEdge }
  */
 
 // Los workers no ven el importmap de index.html: la URL va completa. Este paquete trae WebGPU y WASM.
 import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.webgpu.min.mjs';
+import { hullAreaFromRows } from './geometry.js';
 
 // Lado mayor de la máscara devuelta: los prototipos del modelo son de 160x160, más no aporta.
 const MASK_SIZE = 320;
@@ -155,10 +159,13 @@ function iou(a, b) {
 }
 
 /*
- * Une las máscaras de todas las naranjas en una sola. Cada máscara es sigmoide(coeficientes ·
- * prototipos), recortada a su caja; sigmoide > 0.5 equivale a que el producto sea > 0.
+ * Une las máscaras de todas las naranjas en una sola y devuelve las estadísticas de cada una.
+ * Cada máscara es sigmoide(coeficientes · prototipos), recortada a su caja; sigmoide > 0.5 equivale
+ * a que el producto sea > 0. Cada píxel se decide con el logit de su propia instancia aunque otra
+ * naranja ya lo haya marcado: si no, las que se superponen perderían área y parecerían más lejanas.
  */
 function paintInstances(boxes, protos, { scale, padX, padY }, image, out) {
+  const instances = [];
   const [, nm, mh, mw] = protos.dims;
   const p = protos.data;
   const area = mh * mw;
@@ -193,6 +200,13 @@ function paintInstances(boxes, protos, { scale, padX, padY }, image, out) {
     const u1 = Math.min(out.width - 1, Math.ceil(((box.x2 - padX) / scale) / sx));
     const v0 = Math.max(0, Math.floor(((box.y1 - padY) / scale) / sy));
     const v1 = Math.min(out.height - 1, Math.ceil(((box.y2 - padY) / scale) / sy));
+    // Estadísticas de la instancia: los extremos de cada fila alcanzan para la envolvente convexa.
+    const rows = [];
+    let pixels = 0;
+    let sumU = 0;
+    let sumV = 0;
+    let minU = Infinity;
+    let maxU = -1;
     for (let v = v0; v <= v1; v++) {
       const my = modelY(v);
       if (my < box.y1 || my > box.y2) continue;
@@ -200,9 +214,9 @@ function paintInstances(boxes, protos, { scale, padX, padY }, image, out) {
       const fy = Math.min(Math.max(my * toProto - 0.5 - py0, 0), rh - 1);
       const y0 = Math.min(Math.floor(fy), rh - 2);
       const ty = fy - y0;
+      let rowMin = -1;
+      let rowMax = -1;
       for (let u = u0; u <= u1; u++) {
-        const o = v * out.width + u;
-        if (out.mask[o]) continue;
         const mx = modelX(u);
         if (mx < box.x1 || mx > box.x2) continue;
         const fx = Math.min(Math.max(mx * toProto - 0.5 - px0, 0), rw - 1);
@@ -211,10 +225,35 @@ function paintInstances(boxes, protos, { scale, padX, padY }, image, out) {
         const i = y0 * rw + x0;
         const top = logits[i] + (logits[i + 1] - logits[i]) * tx;
         const bottom = logits[i + rw] + (logits[i + rw + 1] - logits[i + rw]) * tx;
-        if (top + (bottom - top) * ty > 0) out.mask[o] = 1;
+        if (top + (bottom - top) * ty <= 0) continue;
+        out.mask[v * out.width + u] = 1;
+        if (rowMin < 0) rowMin = u;
+        rowMax = u;
+        pixels++;
+        sumU += u;
+        sumV += v;
+      }
+      if (rowMin >= 0) {
+        rows.push([v, rowMin, rowMax]);
+        minU = Math.min(minU, rowMin);
+        maxU = Math.max(maxU, rowMax);
       }
     }
+    if (pixels === 0) continue;
+    const minV = rows[0][0];
+    const maxV = rows[rows.length - 1][0];
+    instances.push({
+      pixels,
+      hullArea: hullAreaFromRows(rows),
+      minU, maxU, minV, maxV,
+      cx: sumU / pixels,
+      cy: sumV / pixels,
+      score: box.score,
+      // Recortada por el borde: su área no sirve para medir.
+      touchesEdge: minU === 0 || minV === 0 || maxU === out.width - 1 || maxV === out.height - 1,
+    });
   }
+  return instances;
 }
 
 async function segmentWithModel(imageData) {
@@ -234,8 +273,8 @@ async function segmentWithModel(imageData) {
   const width = Math.max(1, Math.round(imageData.width * factor));
   const height = Math.max(1, Math.round(imageData.height * factor));
   const out = { mask: new Uint8Array(width * height), width, height };
-  paintInstances(boxes, protos, transform, imageData, out);
-  return { mask: out.mask, width, height, count: boxes.length };
+  const instances = paintInstances(boxes, protos, transform, imageData, out);
+  return { mask: out.mask, width, height, count: boxes.length, instances };
 }
 
 let loading = null;

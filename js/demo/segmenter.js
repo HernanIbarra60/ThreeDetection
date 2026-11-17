@@ -4,17 +4,22 @@
  * Contrato que usa demo.js:
  *   - entrada:  ImageData (RGBA) del frame o de la imagen subida, con el lado mayor
  *               igual a MODEL_INFO.inputSize.
- *   - salida:   { mask, width, height, coverage, count }
+ *   - salida:   { mask, width, height, coverage, count, instances }
  *       mask      Uint8Array de width * height con 1 = naranja, 0 = fondo. Puede tener
  *                 menos resolución que la entrada: se dibuja escalada sobre la imagen.
  *       coverage  fracción de píxeles marcados como naranja (0 a 1).
  *       count     cantidad de naranjas detectadas.
+ *       instances una entrada por naranja, en píxeles de la máscara (la usa geometry.js):
+ *                 { pixels, hullArea, minU, maxU, minV, maxV, cx, cy, score, touchesEdge }.
+ *                 En la simulación cada mancha es una instancia (score = null).
  *
  * Si existen model/model.json y model/orange-seg.onnx (los genera naranjas.ipynb), se usa
  * YOLO26n-seg con ONNX Runtime Web en un Web Worker (model.worker.js), con WebGPU si el navegador
  * lo tiene. Si no, la máscara se simula detectando los píxeles de color naranja, así la página
  * funciona igual antes de exportar el modelo.
  */
+
+import { hullAreaFromRows } from './geometry.js';
 
 const MODEL_DIR = 'model/';
 
@@ -55,8 +60,8 @@ function segmentByColor(imageData) {
   }
 
   const mask = majorityFilter(raw, width, height);
-  const count = removeSmallBlobs(mask, width, height, Math.max(12, MIN_BLOB * mask.length));
-  return result(mask, width, height, count);
+  const instances = removeSmallBlobs(mask, width, height, Math.max(12, MIN_BLOB * mask.length));
+  return result(mask, width, height, instances.length, instances);
 }
 
 /* Filtro de mayoría 3x3: elimina píxeles sueltos y suaviza bordes. */
@@ -82,12 +87,55 @@ function majorityFilter(src, width, height) {
   return out;
 }
 
-/* Borra las manchas chicas (componentes conexas) y devuelve cuántas quedaron. */
+/* Arma la instancia de una mancha con la misma estructura que devuelve el worker del modelo. */
+function blobInstance(blob, width, height, rowMin, rowMax) {
+  let sumU = 0;
+  let sumV = 0;
+  let minV = height;
+  let maxV = -1;
+  for (const p of blob) {
+    const u = p % width;
+    const v = (p - u) / width;
+    sumU += u;
+    sumV += v;
+    if (rowMin[v] < 0) {
+      rowMin[v] = rowMax[v] = u;
+    } else {
+      if (u < rowMin[v]) rowMin[v] = u;
+      if (u > rowMax[v]) rowMax[v] = u;
+    }
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+  }
+  const rows = [];
+  let minU = width;
+  let maxU = -1;
+  for (let v = minV; v <= maxV; v++) {
+    if (rowMin[v] < 0) continue;
+    rows.push([v, rowMin[v], rowMax[v]]);
+    minU = Math.min(minU, rowMin[v]);
+    maxU = Math.max(maxU, rowMax[v]);
+    rowMin[v] = -1; // listo para la próxima mancha
+  }
+  return {
+    pixels: blob.length,
+    hullArea: hullAreaFromRows(rows),
+    minU, maxU, minV, maxV,
+    cx: sumU / blob.length,
+    cy: sumV / blob.length,
+    score: null,
+    touchesEdge: minU === 0 || minV === 0 || maxU === width - 1 || maxV === height - 1,
+  };
+}
+
+/* Borra las manchas chicas (componentes conexas) y devuelve las instancias de las que quedaron. */
 function removeSmallBlobs(mask, width, height, minArea) {
   const seen = new Uint8Array(mask.length);
   const stack = new Int32Array(mask.length);
+  const rowMin = new Int32Array(height).fill(-1);
+  const rowMax = new Int32Array(height);
   const blob = [];
-  let count = 0;
+  const instances = [];
 
   for (let start = 0; start < mask.length; start++) {
     if (!mask[start] || seen[start]) continue;
@@ -112,10 +160,10 @@ function removeSmallBlobs(mask, width, height, minArea) {
         }
       }
     }
-    if (blob.length >= minArea) count++;
+    if (blob.length >= minArea) instances.push(blobInstance(blob, width, height, rowMin, rowMax));
     else for (const p of blob) mask[p] = 0;
   }
-  return count;
+  return instances;
 }
 
 /* ---------- Modelo real: YOLO26n-seg en un Web Worker (model.worker.js) ---------- */
@@ -163,15 +211,15 @@ async function segmentWithModel(imageData) {
   // El buffer del frame se transfiere al worker en vez de copiarse.
   const out = await call({ type: 'segment', imageData }, [imageData.data.buffer]);
   MODEL_INFO.backend = out.backend;
-  return result(out.mask, out.width, out.height, out.count);
+  return result(out.mask, out.width, out.height, out.count, out.instances);
 }
 
 /* ---------- API pública ---------- */
 
-function result(mask, width, height, count) {
+function result(mask, width, height, count, instances = []) {
   let marked = 0;
   for (let p = 0; p < mask.length; p++) marked += mask[p];
-  return { mask, width, height, coverage: marked / mask.length, count };
+  return { mask, width, height, coverage: marked / mask.length, count, instances };
 }
 
 let loading = null;
@@ -201,7 +249,8 @@ let queue = Promise.resolve();
 
 /**
  * @param {ImageData} imageData
- * @returns {Promise<{mask: Uint8Array, width: number, height: number, coverage: number, count: number}>}
+ * @returns {Promise<{mask: Uint8Array, width: number, height: number, coverage: number, count: number,
+ *   instances: object[]}>}
  */
 export function segment(imageData) {
   const run = queue.then(async () => {

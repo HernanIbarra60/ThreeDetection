@@ -1,5 +1,9 @@
 import { Webcam, describeCameraError } from './camera.js';
 import { loadModel, segment, MODEL_INFO } from './segmenter.js';
+import {
+  DEFAULT_DIAMETER_MM, DEFAULT_DISTANCE_CM, DEFAULT_HFOV_DEG,
+  apparentRadius, calibrateFocal, focalFromFov, fovFromFocalRatio, measureInstances,
+} from './geometry.js';
 
 // Rojo anaranjado y borde claro: sobre naranjas un relleno del mismo tono casi no se nota.
 const MASK_FILL = [255, 84, 0, 150];
@@ -7,6 +11,12 @@ const MASK_EDGE = [255, 248, 215, 255];
 const MAX_DISPLAY_WIDTH = 1280;
 // Cámara elegida la última vez (por ejemplo, una webcam USB en vez de la integrada).
 const CAMERA_KEY = 'threedetection.camera';
+// Configuración de la medición y distancia focal calibrada (f / ancho de la imagen).
+const MEASURE_KEY = 'threedetection.measure';
+const FOCAL_KEY = 'threedetection.focal';
+const LABEL_FILL = 'rgba(34, 54, 31, 0.85)';
+const LABEL_FILL_INVALID = 'rgba(107, 76, 50, 0.85)';
+const LABEL_TEXT = '#fffcf6';
 
 function savedCamera() {
   try {
@@ -14,6 +24,53 @@ function savedCamera() {
   } catch {
     return null;
   }
+}
+
+function readStorage(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // Sin almacenamiento solo no se recuerda la configuración.
+  }
+}
+
+function positive(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function savedMeasureSettings() {
+  let saved = {};
+  try {
+    saved = JSON.parse(readStorage(MEASURE_KEY)) ?? {};
+  } catch {
+    // Valor corrupto: se usan los de fábrica.
+  }
+  return {
+    mode: ['off', 'distance', 'size'].includes(saved.mode) ? saved.mode : 'off',
+    diameterMm: positive(saved.diameterMm, DEFAULT_DIAMETER_MM),
+    distanceCm: positive(saved.distanceCm, DEFAULT_DISTANCE_CM),
+    hfovDeg: positive(saved.hfovDeg, DEFAULT_HFOV_DEG),
+  };
+}
+
+function savedFocal() {
+  const value = Number(readStorage(FOCAL_KEY));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/* Lee un número escrito con coma o con punto decimal. */
+function parseNumber(text) {
+  return Number(String(text ?? '').trim().replace(',', '.'));
 }
 
 function saveCamera(deviceId) {
@@ -38,6 +95,15 @@ export function initDemo() {
   const countValue = document.getElementById('count-value');
   const coverage = document.getElementById('coverage-value');
   const speedValue = document.getElementById('speed-value');
+  const measureMode = document.getElementById('measure-mode');
+  const measureValue = document.getElementById('measure-value');
+  const measureValueLabel = document.getElementById('measure-value-label');
+  const measureFov = document.getElementById('measure-fov');
+  const calibrateButton = document.getElementById('measure-calibrate');
+  const resetButton = document.getElementById('measure-reset');
+  const measureDetails = document.querySelectorAll('[data-measure-detail]');
+  const measureStatLabel = document.getElementById('measure-stat-label');
+  const measureStatValue = document.getElementById('measure-stat-value');
 
   const stageCtx = stage.getContext('2d');
   const work = document.createElement('canvas');
@@ -52,10 +118,15 @@ export function initDemo() {
   let busy = false;
   // Última máscara calculada y número de la última inferencia pedida (descarta resultados viejos).
   let lastResult = null;
+  // Medición de cada naranja de lastResult (etiquetas sobre la imagen).
+  let lastMeasures = [];
   let requestId = 0;
   let inferring = false;
   // Backend que muestra el aviso: si WebGPU falla en plena ejecución, el worker pasa a WASM.
   let shownBackend = null;
+
+  const settings = savedMeasureSettings();
+  let focalRatio = savedFocal();
 
   loadModel().then(showModelNotice);
 
@@ -113,9 +184,108 @@ export function initDemo() {
   function showPlaceholder() {
     stage.hidden = true;
     placeholder.hidden = false;
-    lastResult = null;
+    setResult(null);
     showStats(null);
   }
+
+  /* ---------- Medición ---------- */
+
+  function currentFocalRatio() {
+    return focalRatio ?? focalFromFov(1, settings.hfovDeg);
+  }
+
+  function measure(result) {
+    if (!result) return [];
+    return measureInstances(result, {
+      mode: settings.mode,
+      focalRatio: currentFocalRatio(),
+      diameterMm: settings.diameterMm,
+      distanceMm: settings.distanceCm * 10,
+    });
+  }
+
+  function setResult(result) {
+    lastResult = result;
+    lastMeasures = measure(result);
+    showMeasureStat();
+  }
+
+  function showMeasureStat() {
+    const valid = lastMeasures.filter((m) => m.valid);
+    if (settings.mode === 'distance') {
+      measureStatLabel.textContent = 'Más cercana';
+      const nearest = Math.min(...valid.map((m) => m.distanceMm));
+      measureStatValue.textContent = valid.length ? `${Math.round(nearest / 10)} cm` : '—';
+    } else if (settings.mode === 'size') {
+      measureStatLabel.textContent = 'Volumen medio';
+      const mean = valid.reduce((sum, m) => sum + m.volumeMl, 0) / valid.length;
+      measureStatValue.textContent = valid.length ? `${Math.round(mean)} mL` : '—';
+    } else {
+      measureStatLabel.textContent = 'Medición';
+      measureStatValue.textContent = '—';
+    }
+  }
+
+  function saveMeasureSettings() {
+    writeStorage(MEASURE_KEY, JSON.stringify(settings));
+  }
+
+  /* Muestra los controles del modo actual. Con calibración, el campo de visión es el equivalente. */
+  function showMeasureControls() {
+    measureMode.value = settings.mode;
+    for (const element of measureDetails) element.hidden = settings.mode === 'off';
+    if (settings.mode === 'size') {
+      measureValueLabel.textContent = 'Distancia de la cámara (cm)';
+      measureValue.value = String(settings.distanceCm);
+    } else {
+      measureValueLabel.textContent = 'Diámetro de la naranja (mm)';
+      measureValue.value = String(settings.diameterMm);
+    }
+    measureFov.disabled = focalRatio !== null;
+    measureFov.value = String(Math.round(focalRatio !== null ? fovFromFocalRatio(focalRatio) : settings.hfovDeg));
+    measureFov.title = focalRatio !== null ? 'Calculado con la calibración. Usá "Restablecer" para volver a escribirlo.' : '';
+    resetButton.hidden = settings.mode === 'off' || focalRatio === null;
+  }
+
+  /* Recalcula las etiquetas con la configuración nueva sin volver a correr el modelo. */
+  function remeasure() {
+    lastMeasures = measure(lastResult);
+    showMeasureStat();
+    if (mode === 'image' && image) draw(image, image.naturalWidth, image.naturalHeight, false);
+  }
+
+  /* Etiquetas sobre cada naranja. Con la cámara se espeja la posición, pero no el texto. */
+  function drawLabels(displayWidth, displayHeight, mirror) {
+    if (!lastResult || lastMeasures.length === 0) return;
+    const sx = displayWidth / lastResult.width;
+    const sy = displayHeight / lastResult.height;
+    const fontSize = Math.max(12, Math.round(displayWidth / 60));
+    const boxHeight = fontSize + 8;
+    stageCtx.save();
+    stageCtx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
+    stageCtx.textAlign = 'center';
+    stageCtx.textBaseline = 'middle';
+    for (const { instance, label, valid } of lastMeasures) {
+      const boxWidth = stageCtx.measureText(label).width + 12;
+      let x = ((instance.minU + instance.maxU + 1) / 2) * sx;
+      if (mirror) x = displayWidth - x;
+      x = Math.min(Math.max(x, boxWidth / 2), displayWidth - boxWidth / 2);
+      // Arriba de la naranja; si no entra, en el centro.
+      let y = instance.minV * sy - boxHeight / 2 - 4;
+      if (y - boxHeight / 2 < 0) y = ((instance.minV + instance.maxV + 1) / 2) * sy;
+      stageCtx.fillStyle = valid ? LABEL_FILL : LABEL_FILL_INVALID;
+      stageCtx.beginPath();
+      if (stageCtx.roundRect) stageCtx.roundRect(x - boxWidth / 2, y - boxHeight / 2, boxWidth, boxHeight, boxHeight / 2);
+      else stageCtx.rect(x - boxWidth / 2, y - boxHeight / 2, boxWidth, boxHeight);
+      stageCtx.fill();
+      stageCtx.fillStyle = LABEL_TEXT;
+      stageCtx.fillText(label, x, y + 1);
+    }
+    stageCtx.restore();
+  }
+
+  showMeasureControls();
+  showMeasureStat();
 
   function resizeCanvas(canvas, width, height) {
     if (canvas.width !== width || canvas.height !== height) {
@@ -156,7 +326,7 @@ export function initDemo() {
     const result = await segment(workCtx.getImageData(0, 0, workWidth, workHeight));
     const ms = performance.now() - start;
     if (id !== requestId) return null;
-    lastResult = result;
+    setResult(result);
     paintMask(result);
     showStats(result, ms);
     if (MODEL_INFO.backend !== shownBackend) showModelNotice();
@@ -183,10 +353,11 @@ export function initDemo() {
       stageCtx.drawImage(maskCanvas, 0, 0, displayWidth, displayHeight);
     }
     stageCtx.restore();
+    drawLabels(displayWidth, displayHeight, mirror);
   }
 
   async function showImage(img) {
-    lastResult = null;
+    setResult(null);
     draw(img, img.naturalWidth, img.naturalHeight, false);
     const result = await analyze(img, img.naturalWidth, img.naturalHeight);
     if (result && mode === 'image' && image === img) draw(img, img.naturalWidth, img.naturalHeight, false);
@@ -242,7 +413,7 @@ export function initDemo() {
     try {
       await webcam.start(cameraSelect.value || savedCamera());
       mode = 'camera';
-      lastResult = null;
+      setResult(null);
       setCameraButton(true);
       setStatus('Cámara activa: buscando naranjas en tiempo real.');
       loopId++;
@@ -306,7 +477,7 @@ export function initDemo() {
     try {
       webcam.stop();
       requestId++; // descarta la máscara de un frame de la cámara anterior que siga en curso
-      lastResult = null;
+      setResult(null);
       await webcam.start(cameraSelect.value);
       setStatus(`Cámara activa: ${cameraSelect.selectedOptions[0]?.text ?? 'cámara elegida'}.`);
     } catch (error) {
@@ -324,6 +495,71 @@ export function initDemo() {
 
   maskToggle.addEventListener('change', () => {
     if (mode === 'image' && image) draw(image, image.naturalWidth, image.naturalHeight, false);
+  });
+
+  measureMode.addEventListener('change', () => {
+    settings.mode = measureMode.value;
+    saveMeasureSettings();
+    showMeasureControls();
+    remeasure();
+  });
+
+  measureValue.addEventListener('input', () => {
+    const value = parseNumber(measureValue.value);
+    if (!(value > 0)) return;
+    if (settings.mode === 'size') settings.distanceCm = value;
+    else settings.diameterMm = value;
+    saveMeasureSettings();
+    remeasure();
+  });
+
+  measureFov.addEventListener('input', () => {
+    const value = parseNumber(measureFov.value);
+    if (!(value > 0 && value < 180)) return;
+    settings.hfovDeg = value;
+    saveMeasureSettings();
+    remeasure();
+  });
+
+  /*
+   * Calibración: con una naranja de diámetro conocido a una distancia medida se despeja f / W.
+   * Vale para la cámara y la resolución con que se calibró (el zoom o el recorte la cambian).
+   */
+  calibrateButton.addEventListener('click', () => {
+    const candidates = (lastResult?.instances ?? []).filter((i) => !i.touchesEdge && i.hullArea > 0);
+    if (candidates.length === 0) {
+      setStatus('Para calibrar hace falta una naranja entera en la imagen (que no toque el borde).', true);
+      return;
+    }
+    // Se fija la naranja y el ancho antes del diálogo: con la cámara, lastResult sigue cambiando.
+    const target = candidates.reduce((a, b) => (b.hullArea > a.hullArea ? b : a));
+    const width = lastResult.width;
+    const suggested = settings.mode === 'size' ? String(settings.distanceCm) : '';
+    const answer = window.prompt(
+      `Distancia real de la cámara al centro de la naranja más grande, en cm ` +
+      `(se toma un diámetro de ${settings.diameterMm} mm):`,
+      suggested,
+    );
+    if (answer === null) return;
+    const distanceCm = parseNumber(answer);
+    const ratio = distanceCm > 0 ? calibrateFocal(apparentRadius(target), width, distanceCm * 10, settings.diameterMm) : null;
+    if (!ratio) {
+      setStatus('Distancia no válida: tiene que ser mayor que el radio de la naranja.', true);
+      return;
+    }
+    focalRatio = ratio;
+    writeStorage(FOCAL_KEY, String(ratio));
+    showMeasureControls();
+    remeasure();
+    setStatus(`Cámara calibrada: campo de visión horizontal equivalente de ${Math.round(fovFromFocalRatio(ratio))}°.`);
+  });
+
+  resetButton.addEventListener('click', () => {
+    focalRatio = null;
+    writeStorage(FOCAL_KEY, null);
+    showMeasureControls();
+    remeasure();
+    setStatus('Calibración borrada: se usa el campo de visión.');
   });
 
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {

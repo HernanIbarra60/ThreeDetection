@@ -97,6 +97,30 @@
               <input id="mask-toggle" type="checkbox" checked>
               <span>Mostrar máscara</span>
             </label>
+
+            <div class="measure" role="group" aria-labelledby="measure-title">
+              <span id="measure-title" class="measure__title">Medición</span>
+              <label class="field">
+                <span>Modo</span>
+                <select id="measure-mode">
+                  <option value="off">Desactivado</option>
+                  <option value="distance">Distancia</option>
+                  <option value="size">Tamaño y volumen</option>
+                </select>
+              </label>
+              <label class="field" data-measure-detail>
+                <span id="measure-value-label">Diámetro de la naranja (mm)</span>
+                <input id="measure-value" type="number" min="1" step="1" inputmode="decimal">
+              </label>
+              <label class="field" data-measure-detail>
+                <span>Campo de visión (°)</span>
+                <input id="measure-fov" type="number" min="10" max="170" step="1" inputmode="decimal">
+              </label>
+              <button id="measure-calibrate" class="btn btn--secondary btn--small" type="button" data-measure-detail>
+                Calibrar
+              </button>
+              <button id="measure-reset" class="link-button" type="button" hidden>Restablecer</button>
+            </div>
           </div>
 
           <div class="demo__stage">
@@ -122,7 +146,12 @@
                 <dt>Velocidad</dt>
                 <dd id="speed-value">—</dd>
               </div>
+              <div>
+                <dt id="measure-stat-label">Medición</dt>
+                <dd id="measure-stat-value">—</dd>
+              </div>
             </dl>
+            <a class="demo__link" href="validacion.html">Validación de la medición con el naranjal 3D →</a>
           </div>
         </div>
       </div>

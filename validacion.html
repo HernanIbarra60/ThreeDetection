@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ThreeDetection · Validación de la medición</title>
+  <meta name="description" content="Validación de la estimación de distancia y volumen de naranjas contra un naranjo 3D con medidas conocidas.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main>
+    <section class="section">
+      <div class="container">
+        <div class="intro">
+          <p><a class="demo__link" href="index.html#demo">← Volver a la demo</a></p>
+          <h1 class="section__title">Validación con el naranjal 3D</h1>
+          <p class="section__lead">
+            Una cámara virtual recorre un naranjo a distancias y ángulos conocidos. Cada captura pasa
+            por el mismo modelo que la demo y la medición se compara con la posición y el tamaño
+            reales de cada fruta.
+          </p>
+        </div>
+
+        <div class="demo">
+          <p id="bench-notice" class="demo__notice" role="status" aria-live="polite">
+            <strong>Cargando modelo…</strong>
+          </p>
+
+          <div class="bench__controls">
+            <label class="field">
+              <span>Distancias a la copa (u)</span>
+              <input id="bench-distances" type="text" value="1, 1.5, 2, 2.5, 3, 4" inputmode="decimal">
+            </label>
+            <label class="field">
+              <span>Ángulos alrededor</span>
+              <input id="bench-angles" type="number" min="1" max="36" step="1" value="8">
+            </label>
+            <label class="field">
+              <span>Campo de visión supuesto (°)</span>
+              <input id="bench-fov" type="number" min="10" max="170" step="1" value="70">
+            </label>
+            <label class="bench__check">
+              <input id="bench-fine" type="checkbox">
+              <span>Esferas finas (32×16)</span>
+            </label>
+            <button id="bench-run" class="btn btn--primary" type="button">Correr barrido</button>
+            <button id="bench-csv" class="btn btn--secondary" type="button" disabled>Descargar CSV</button>
+          </div>
+
+          <canvas id="bench-preview" class="bench__preview" width="640" height="480"></canvas>
+          <p id="bench-status" class="demo__status" role="status" aria-live="polite"></p>
+
+          <div class="bench__table-wrap">
+            <table id="bench-table" class="bench__table" hidden></table>
+          </div>
+
+          <ul class="bench__notes">
+            <li>
+              Escala: el diámetro medio de las frutas de la escena equivale a 75 mm, así que las
+              distancias se informan en cm y los volúmenes en mL equivalentes.
+            </li>
+            <li>
+              <strong>Distancia</strong>: diámetro supuesto igual al medio de la escena, con la distancia
+              focal exacta de la cámara virtual y con la de un campo de visión supuesto.
+              <strong>Diámetro y volumen</strong>: con la distancia real a cada fruta y la focal exacta.
+            </li>
+            <li>
+              Válidas: frutas visibles y enteras en el cuadro que el modelo detectó sin tocar el borde.
+              «Sin oclusión» se queda con las que tienen al menos el 80 % de su silueta a la vista.
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/validation/benchmark.js"></script>
+</body>
+</html>
