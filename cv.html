@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hernán Ibarra · CV</title>
+  <meta name="description" content="Currículum de Hernán Ibarra, estudiante de Ingeniería Mecatrónica en la FIUNA. Proyecto destacado: ThreeDetection, segmentación y conteo de naranjas con YOLO en el navegador.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cream: #f6f1e6;
+      --paper: #fffcf6;
+      --line: #e3dac6;
+      --green-900: #22361f;
+      --green-700: #35552f;
+      --green-500: #5c8a47;
+      --green-100: #e6efdc;
+      --orange-600: #d4670b;
+      --text: #2b2a25;
+      --text-soft: #5d5a50;
+      --radius: 14px;
+      --font-display: "Fraunces", Georgia, serif;
+      --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--cream);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1, h2, h3 { font-family: var(--font-display); color: var(--green-900); line-height: 1.15; margin: 0; }
+    p { margin: 0; }
+    a { color: var(--green-700); }
+    a:hover { color: var(--orange-600); }
+
+    .page {
+      width: min(880px, 100% - 2rem);
+      margin: 2.5rem auto;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(53, 85, 47, 0.10);
+      overflow: hidden;
+    }
+
+    /* Encabezado */
+    .head {
+      background: var(--green-900);
+      color: #f3f6ee;
+      padding: 2.25rem 2.5rem 2rem;
+    }
+    .head h1 { color: #fff; font-size: clamp(2rem, 5vw, 2.75rem); }
+    .head__role { margin-top: .35rem; font-size: 1.1rem; color: #d8e6c9; }
+    .contact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem 1.5rem;
+      margin: 1.25rem 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: .95rem;
+    }
+    .contact a { color: #fff; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,.35); }
+    .contact a:hover { color: #f6b26b; border-color: #f6b26b; }
+    .contact span { color: #a7c58d; margin-right: .35rem; }
+
+    /* Cuerpo */
+    .body { padding: 2rem 2.5rem 2.5rem; display: grid; gap: 2rem; }
+    section h2 {
+      font-size: 1.35rem;
+      padding-bottom: .4rem;
+      margin-bottom: .9rem;
+      border-bottom: 2px solid var(--green-100);
+    }
+    .lead { color: var(--text-soft); }
+
+    .item + .item { margin-top: 1.1rem; }
+    .item__top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; align-items: baseline; }
+    .item h3 { font-size: 1.1rem; }
+    .item__when { font-size: .9rem; color: var(--text-soft); white-space: nowrap; }
+    .item__where { color: var(--green-700); font-weight: 500; margin-top: .1rem; }
+
+    ul.points { margin: .6rem 0 0; padding-left: 1.2rem; }
+    ul.points li + li { margin-top: .3rem; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: .75rem;
+      margin: 1rem 0 .25rem;
+      padding: 0;
+      list-style: none;
+    }
+    .stats li {
+      background: var(--green-100);
+      border-radius: 10px;
+      padding: .75rem .9rem;
+      font-size: .88rem;
+      color: var(--text-soft);
+    }
+    .stats strong {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 1.45rem;
+      color: var(--green-900);
+      line-height: 1.2;
+    }
+
+    .links { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1rem; }
+    .btn {
+      display: inline-block;
+      padding: .5rem 1rem;
+      border-radius: 999px;
+      background: var(--orange-600);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: .92rem;
+    }
+    .btn:hover { color: #fff; background: #b8590a; }
+    .btn--ghost { background: transparent; color: var(--green-700); border: 1.5px solid var(--green-500); }
+    .btn--ghost:hover { background: var(--green-100); color: var(--green-900); }
+
+    .skills { display: grid; gap: .75rem; }
+    .skills__row { display: grid; grid-template-columns: 11rem 1fr; gap: .5rem 1rem; }
+    .skills__row dt { font-weight: 600; color: var(--green-900); }
+    .skills__row dd { margin: 0; }
+    .tags { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .tags span {
+      font-size: .85rem;
+      padding: .15rem .6rem;
+      border-radius: 999px;
+      background: var(--cream);
+      border: 1px solid var(--line);
+    }
+
+    .foot {
+      padding: 1rem 2.5rem 1.5rem;
+      font-size: .85rem;
+      color: var(--text-soft);
+      border-top: 1px solid var(--line);
+    }
+
+    @media (max-width: 600px) {
+      .page { margin: 1rem auto; }
+      .head, .body, .foot { padding-left: 1.25rem; padding-right: 1.25rem; }
+      .skills__row { grid-template-columns: 1fr; gap: .25rem; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page { margin: 0; width: 100%; border: 0; box-shadow: none; }
+      .links, .foot { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <article class="page">
+    <header class="head">
+      <h1>Hernán Ibarra</h1>
+      <p class="head__role">Estudiante de Ingeniería Mecatrónica · FIUNA</p>
+      <ul class="contact">
+        <li><span>GitHub</span><a href="https://github.com/HernanIbarra60">github.com/HernanIbarra60</a></li>
+        <li><span>Email</span><a href="mailto:hernanibarra60@gmail.com">hernanibarra60@gmail.com</a></li>
+        <li><span>Proyecto</span><a href="https://hernanibarra60.github.io/ThreeDetection/">ThreeDetection</a></li>
+      </ul>
+    </header>
+
+    <div class="body">
+      <section aria-labelledby="perfil">
+        <h2 id="perfil">Perfil</h2>
+        <p class="lead">
+          Estudiante de Ingeniería Mecatrónica. Desarrollé ThreeDetection, un sistema que
+          segmenta, cuenta y mide la distancia de naranjas con una sola cámara, desde el
+          entrenamiento del modelo hasta una página web que lo ejecuta en el navegador.
+        </p>
+      </section>
+
+      <section aria-labelledby="formacion">
+        <h2 id="formacion">Formación</h2>
+        <div class="item">
+          <div class="item__top">
+            <h3>Ingeniería Mecatrónica</h3>
+            <span class="item__when">En curso</span>
+          </div>
+          <p class="item__where">Facultad de Ingeniería, Universidad Nacional de Asunción (FIUNA)</p>
+          <ul class="points">
+            <li>Cátedra de Inteligencia Artificial (2026): proyecto final ThreeDetection.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section aria-labelledby="proyecto">
+        <h2 id="proyecto">Proyecto destacado</h2>
+        <div class="item">
+          <div class="item__top">
+            <h3>ThreeDetection: conteo y medición de naranjas con IA</h3>
+            <span class="item__when">2026</span>
+          </div>
+          <p class="item__where">Segmentación de instancias con YOLO · Web estática en GitHub Pages</p>
+          <ul class="points">
+            <li>
+              Entrené <strong>YOLO26n-seg</strong> en Google Colab (GPU T4) con el dataset
+              <em>Orange occlusion</em> de Roboflow: 1000 imágenes y 3749 naranjas anotadas
+              con polígonos, con hojas que tapan parte de las frutas.
+            </li>
+            <li>
+              Comparé cuatro estrategias de entrenamiento (modelo base de COCO, transfer
+              learning, fine-tuning en dos etapas y fine-tuning directo) y tres arquitecturas
+              (YOLOv8n, YOLO11n y YOLO26n) entrenadas con la misma receta y 3 semillas cada una.
+            </li>
+            <li>
+              Exporté el mejor modelo a <strong>ONNX</strong> y lo integré en una página web con
+              ONNX Runtime Web dentro de un Web Worker: segmenta y cuenta naranjas con la
+              webcam o una imagen, sin enviar las fotos a ningún servidor.
+            </li>
+            <li>
+              Implementé la medición de distancia, tamaño y volumen con un modelo de cámara
+              estenopeica (focal fija, Logitech C270) y la validé con mediciones reales y un
+              naranjal 3D generado con three.js.
+            </li>
+          </ul>
+
+          <ul class="stats" aria-label="Resultados principales">
+            <li><strong>1,08</strong>naranjas de error medio de conteo por imagen</li>
+            <li><strong>0,42 → 0,71</strong>mAP50-95 de máscara, de COCO al modelo ajustado</li>
+            <li><strong>~2,8 cm</strong>error medio de distancia entre 30 cm y 1 m</li>
+            <li><strong>11 MB</strong>modelo que corre en el navegador</li>
+          </ul>
+
+          <div class="links">
+            <a class="btn" href="https://hernanibarra60.github.io/ThreeDetection/">Ver la demo</a>
+            <a class="btn btn--ghost" href="https://github.com/HernanIbarra60/ThreeDetection">Código en GitHub</a>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="habilidades">
+        <h2 id="habilidades">Habilidades técnicas</h2>
+        <dl class="skills">
+          <div class="skills__row">
+            <dt>Lenguajes</dt>
+            <dd class="tags"><span>Python</span><span>JavaScript</span><span>HTML</span><span>CSS</span></dd>
+          </div>
+          <div class="skills__row">
+            <dt>Inteligencia artificial</dt>
+            <dd class="tags"><span>PyTorch</span><span>Ultralytics YOLO</span><span>Segmentación de instancias</span><span>Transfer learning y fine-tuning</span><span>Métricas (mAP, F1, MAE)</span></dd>
+          </div>
+          <div class="skills__row">
+            <dt>Despliegue y web</dt>
+            <dd class="tags"><span>ONNX</span><span>ONNX Runtime Web</span><span>Web Workers</span><span>three.js</span><span>GitHub Pages</span></dd>
+          </div>
+          <div class="skills__row">
+            <dt>Herramientas</dt>
+            <dd class="tags"><span>Google Colab</span><span>Roboflow</span><span>Git y GitHub</span><span>Pandas</span><span>Matplotlib</span></dd>
+          </div>
+          <div class="skills__row">
+            <dt>Visión y medición</dt>
+            <dd class="tags"><span>Modelo de cámara pinhole</span><span>Calibración de focal</span><span>Estimación de distancia y volumen</span></dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+
+    <footer class="foot">
+      Página publicada con GitHub Pages ·
+      <a href="./">Volver a ThreeDetection</a>
+    </footer>
+  </article>
+</body>
+</html>

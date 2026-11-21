@@ -1,7 +1,29 @@
 # ThreeDetection
 
-Página web del proyecto de la cátedra de Inteligencia Artificial. Por ahora el foco es la
-**segmentación de naranjas** con YOLO26n-seg.
+Proyecto final de la cátedra de Inteligencia Artificial (FIUNA, 2026) de **Hernán Ibarra**,
+estudiante de Ingeniería Mecatrónica.
+
+- **Demo en vivo:** <https://hernanibarra60.github.io/ThreeDetection/>
+- **CV personal:** <https://hernanibarra60.github.io/ThreeDetection/cv.html>
+
+## De qué se trata
+
+Contar naranjas a mano en el árbol es lento, y muchas frutas quedan tapadas por hojas. ThreeDetection
+usa **segmentación de instancias** con **YOLO26n-seg**: encuentra cada naranja, dibuja su contorno, la
+cuenta y estima a qué distancia está de la cámara. Todo corre en el navegador con una webcam común.
+
+Resultados principales (test de 100 imágenes y 390 naranjas):
+
+| Modelo | Máscara mAP50-95 | Error medio de conteo |
+|---|---|---|
+| YOLO26n-seg sin entrenar (COCO) | 0,42 | 1,65 naranjas por imagen |
+| YOLO26n-seg con fine-tuning en dos etapas (el de la web) | 0,65 | **1,08** naranjas por imagen |
+
+También se compararon YOLOv8n, YOLO11n y YOLO26n con la misma receta y 3 semillas: empatan en
+calidad de máscara (~0,67 de mAP50-95), y YOLO11 y YOLO26 cuentan un 18 % mejor que YOLOv8. La
+medición de distancia con la Logitech C270 tuvo un error medio de ~2,8 cm entre 30 cm y 1 m.
+
+## Qué incluye la página
 
 - **Naranjal 3D** generado proceduralmente con [three.js](https://threejs.org/) (naranjos con frutas, pasto y viento).
 - **Demo de segmentación** con la webcam o subiendo una imagen: marca cada naranja, las cuenta y calcula la cobertura.

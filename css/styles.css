@@ -655,6 +655,15 @@ p {
   font-size: 0.95rem;
 }
 
+.footer__link {
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.footer__link:hover {
+  color: var(--orange-300);
+}
+
 @media (max-width: 640px) {
   .hero {
     align-items: flex-start;
