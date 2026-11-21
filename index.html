@@ -21,6 +21,19 @@
 </head>
 <body>
 
+  <nav class="topnav" aria-label="Secciones">
+    <div class="container topnav__inner">
+      <a class="topnav__brand" href="#hero">ThreeDetection</a>
+      <ul class="topnav__links">
+        <li><a href="#proyecto">Proyecto</a></li>
+        <li><a href="#resultados">Resultados</a></li>
+        <li><a href="#demo">Demo</a></li>
+        <li><a href="validacion.html">Validación</a></li>
+        <li><a class="topnav__cv" href="cv.html">Mi CV</a></li>
+      </ul>
+    </div>
+  </nav>
+
   <!-- 1. Naranjal 3D -->
   <header id="hero" class="hero">
     <canvas id="forest-canvas" class="hero__canvas" aria-hidden="true"></canvas>
@@ -32,16 +45,165 @@
       <p class="hero__subtitle">
         Un modelo que encuentra y cuenta naranjas, píxel por píxel.
       </p>
-      <a href="#demo" class="btn btn--primary">Probar la demo</a>
+      <div class="hero__actions">
+        <a href="#demo" class="btn btn--primary">Probar la demo</a>
+        <a href="#proyecto" class="btn btn--secondary">Ver el proyecto</a>
+      </div>
     </div>
 
-    <a href="#demo" class="hero__scroll" aria-label="Bajar a la demo">
+    <a href="#proyecto" class="hero__scroll" aria-label="Bajar al proyecto">
       <span></span>
     </a>
   </header>
 
   <main>
-    <!-- 2. Descripción + demo -->
+    <!-- 2. Proyecto de IA -->
+    <section id="proyecto" class="section section--paper">
+      <div class="container">
+        <div class="intro">
+          <p class="hero__eyebrow">Proyecto de Inteligencia Artificial</p>
+          <h2 class="section__title">ThreeDetection: segmentación y conteo de naranjas con YOLO</h2>
+          <p class="section__lead">
+            Contar naranjas a mano en el árbol es lento y muchas frutas quedan tapadas por hojas.
+            ThreeDetection entrena un modelo de <strong>segmentación de instancias</strong> que
+            encuentra cada naranja, dibuja su contorno, la cuenta y estima su distancia a la cámara.
+            Sirve como base para estimar la cosecha, guiar un brazo robótico o clasificar fruta
+            por tamaño, y corre en el navegador con una webcam común.
+          </p>
+        </div>
+
+        <ul class="features">
+          <li class="feature">
+            <h3 class="feature__title">Dataset</h3>
+            <p>
+              <a href="https://universe.roboflow.com/canerbeldek/orange-occlusion-dataset" target="_blank" rel="noopener"><em>Orange occlusion</em> v5</a>
+              de Roboflow Universe (CC BY 4.0): 1000 fotos de naranjos a 640×640 px con
+              3749 naranjas anotadas con <strong>polígonos</strong>, muchas tapadas por hojas.
+            </p>
+            <ul class="feature__facts">
+              <li>Entrenamiento: 700 imágenes · 2574 naranjas</li>
+              <li>Validación: 200 imágenes · 785 naranjas</li>
+              <li>Test: 100 imágenes · 390 naranjas</li>
+              <li>Se descartó la clase <em>hoja</em> y se dejó solo <em>naranja</em></li>
+            </ul>
+          </li>
+          <li class="feature">
+            <h3 class="feature__title">Modelo</h3>
+            <p>
+              <strong>YOLO26n-seg</strong> preentrenado en COCO (~2,7 M de parámetros), ajustado
+              en dos etapas en Google Colab con una GPU T4:
+            </p>
+            <ul class="feature__facts">
+              <li><strong>Transfer learning:</strong> backbone congelado (10 capas), 30 épocas, batch 16, 640 px</li>
+              <li><strong>Fine-tuning:</strong> todas las capas, AdamW con lr = 1·10⁻⁴, sin warm-up, 30 épocas a 1024 px, batch 8</li>
+              <li>Aumento de color HSV (tono 0,01, saturación 0,7, brillo 0,5) y early stopping a las 10 épocas sin mejora</li>
+              <li>Exportado a <strong>ONNX</strong> (11 MB) con el NMS incluido</li>
+            </ul>
+          </li>
+          <li class="feature">
+            <h3 class="feature__title">Optimización de hiperparámetros</h3>
+            <p>
+              Búsqueda manual por comparación sobre el mismo split de test, cambiando un factor a la vez:
+            </p>
+            <ul class="feature__facts">
+              <li><strong>Estrategia:</strong> modelo base, transfer learning y fine-tuning</li>
+              <li><strong>Resolución:</strong> 640 vs. 1024 px (1024 mejora la máscara pero es 2,2 veces más lento)</li>
+              <li><strong>Arquitectura:</strong> YOLOv8n, YOLO11n y YOLO26n con 3 semillas cada una</li>
+              <li>Elegido: el modelo de fine-tuning usado a 640 px, el de menor error de conteo y el más rápido en el navegador</li>
+            </ul>
+          </li>
+        </ul>
+
+        <figure class="shot">
+          <img src="imagenes/muestras.jpg" width="1760" height="880" loading="lazy"
+               alt="Ocho fotos del dataset tomadas en un naranjal, con cada naranja anotada pintada en naranja y la cantidad de naranjas arriba de cada foto.">
+          <figcaption>
+            Fotos reales del dataset <em>Orange occlusion</em> con las naranjas anotadas: frutas chicas, a contraluz
+            y tapadas por hojas, que es lo que hace difícil contarlas.
+          </figcaption>
+        </figure>
+
+        <h3 id="resultados" class="subsection__title">Resultados</h3>
+        <p class="subsection__lead">Imágenes y gráficos generados por Ultralytics al entrenar y evaluar el modelo de la demo (fine-tuning), con las fotos de validación y test.</p>
+
+        <figure class="shot">
+          <img src="imagenes/etiquetas-vs-prediccion.jpg" width="1200" height="592" loading="lazy"
+               alt="Cuatro fotos de validación repetidas: a la izquierda con las naranjas etiquetadas a mano y a la derecha con las naranjas que predijo el modelo y su confianza.">
+          <figcaption>
+            Izquierda: naranjas etiquetadas a mano. Derecha: lo que predice el modelo sobre las mismas fotos, con su confianza.
+            Encuentra casi todas, incluso las chicas y las que están entre las hojas.
+          </figcaption>
+        </figure>
+
+        <figure class="shot">
+          <img src="imagenes/base-vs-finetuning.jpg" width="1574" height="795" loading="lazy"
+               alt="Cuatro fotos de test de naranjos, arriba con el modelo base y abajo con el modelo ajustado, con las naranjas detectadas marcadas.">
+          <figcaption>
+            Arriba el modelo base de COCO y abajo el ajustado, sobre las mismas fotos de test (predichas / reales).
+            El ajustado encuentra naranjas tapadas que el base no ve, aunque en la última foto cuenta de más.
+          </figcaption>
+        </figure>
+
+        <div class="shots-row">
+          <figure class="shot shot--plot">
+            <img src="imagenes/matriz-confusion.jpg" width="1050" height="947" loading="lazy"
+                 alt="Matriz de confusión en test: 384 naranjas detectadas, 6 naranjas no detectadas y 1901 detecciones sobre el fondo.">
+            <figcaption>
+              Matriz de confusión en test. De las 390 naranjas reales encuentra 384 (98 %) y se le escapan 6.
+              Ultralytics la arma con casi todas las detecciones, incluso las de confianza muy baja: por eso la
+              casilla de fondo marcado como naranja (1901) es tan grande. Con el umbral de la demo (0,25) esas
+              detecciones se descartan.
+            </figcaption>
+          </figure>
+          <figure class="shot shot--plot">
+            <img src="imagenes/curva-pr-mascara.jpg" width="1050" height="700" loading="lazy"
+                 alt="Curva precisión-recall de las máscaras en el split de test, con un mAP50 de 0,917.">
+            <figcaption>Curva precisión-recall de las máscaras en test: mAP50 = 0,917.</figcaption>
+          </figure>
+        </div>
+
+        <dl class="stats">
+          <div><dt>Error de conteo</dt><dd>1,08</dd><p>naranjas por imagen (el modelo base: 1,65)</p></div>
+          <div><dt>Máscara mAP50-95</dt><dd>0,65</dd><p>en test (el modelo base: 0,42)</p></div>
+          <div><dt>Precisión / recall</dt><dd>0,85 / 0,88</dd><p>de lo que marca, cuánto es naranja / cuántas encuentra</p></div>
+          <div><dt>Distancia</dt><dd>~2,8 cm</dd><p>de error medio entre 30 cm y 1 m (Logitech C270)</p></div>
+        </dl>
+
+        <div class="bench__table-wrap">
+          <table class="bench__table">
+            <caption>Comparación de arquitecturas con la misma receta (30 épocas, 640 px): media ± desviación de 3 semillas</caption>
+            <thead>
+              <tr><th>Arquitectura</th><th>Parámetros</th><th>Máscara mAP50-95</th><th>F1</th><th>Error de conteo (MAE)</th><th>Inferencia (ms/img, T4)</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>YOLOv8n-seg</td><td>3,4 M</td><td>0,674 ± 0,003</td><td>0,853 ± 0,006</td><td>1,55 ± 0,01</td><td>6,9 ± 1,0</td></tr>
+              <tr><td>YOLO11n-seg</td><td>2,9 M</td><td>0,676 ± 0,002</td><td>0,852 ± 0,011</td><td>1,29 ± 0,10</td><td>6,2 ± 0,9</td></tr>
+              <tr><td>YOLO26n-seg</td><td>3,1 M</td><td>0,671 ± 0,012</td><td>0,863 ± 0,007</td><td>1,27 ± 0,03</td><td>7,7 ± 1,3</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="subsection__note">
+          Las tres arquitecturas empatan en calidad de máscara; YOLO11 y YOLO26 cuentan un 18 % mejor que YOLOv8.
+        </p>
+
+        <figure class="shot">
+          <img src="imagenes/base-vs-finetuning.jpg" width="1574" height="795" loading="lazy"
+               alt="Cuatro fotos de test de naranjos, arriba con el modelo base y abajo con el modelo ajustado, con las naranjas detectadas marcadas.">
+          <figcaption>
+            Arriba el modelo base y abajo el ajustado, sobre las mismas fotos de test (predichas / reales).
+            El ajustado encuentra las naranjas tapadas que el base no ve, aunque en la última foto cuenta de más.
+          </figcaption>
+        </figure>
+
+        <div class="project__actions">
+          <a class="btn btn--primary" href="https://github.com/HernanIbarra60/ThreeDetection" target="_blank" rel="noopener">Repositorio en GitHub</a>
+          <a class="btn btn--secondary" href="https://github.com/HernanIbarra60/ThreeDetection/blob/main/naranjas.ipynb" target="_blank" rel="noopener">Notebook de Colab</a>
+          <a class="link-button" href="validacion.html">Validación de la medición →</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Descripción + demo -->
     <section id="demo" class="section">
       <div class="container">
         <div class="intro">
